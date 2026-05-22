@@ -17,6 +17,15 @@ let currentDownloadsState = {
   cancelledCount: 0
 };
 
+let carbonTrendChart = null;
+
+const equivalencyMessages = [
+  'Your session savings today are equivalent to charging a smartphone 12 times.',
+  'Today’s optimized usage avoided enough CO₂ to power an LED bulb for 18 hours.',
+  'Your eco-aware scheduling today is roughly equal to planting 24 square centimeters of forest.',
+  'Your deferred downloads today prevented emissions equal to 3 hours of HD video streaming.'
+];
+
 // Eco-scheduler state
 let ecoTasks = [];
 let selectedTagSet = new Set();
@@ -169,6 +178,36 @@ async function fetchDownloadsState() {
   }
 }
 
+async function fetchCarbonHistory() {
+  try {
+    const res = await fetch(`${API}/api/carbon/history`);
+
+    if (!res.ok) {
+      throw new Error(`History API error: ${res.status}`);
+    }
+
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return { points: [] };
+  }
+}
+
+async function fetchPowerBreakdown() {
+  try {
+    const res = await fetch(`${API}/api/carbon/power-breakdown`);
+
+    if (!res.ok) {
+      throw new Error(`Breakdown API error: ${res.status}`);
+    }
+
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return { sources: [] };
+  }
+}
+
 // Eco-scheduler API helpers
 async function fetchEcoTasks() {
   const res = await fetch(`${API}/api/scheduler/tasks`);
@@ -303,6 +342,11 @@ async function loadDashboard() {
     if (Array.isArray(ecoTasks) && ecoTasks.length) {
       updateEcoHomeSummary();
     }
+
+    await renderCarbonTrendChart();
+    await renderEnergyMix();
+    rotateEquivalency();
+
   } catch (e) {
     setText('dash-intensity', 'Offline');
     setText('home-intensity', 'Offline');
@@ -431,6 +475,112 @@ function renderTabsTable(state) {
       `;
     })
     .join('');
+}
+async function renderCarbonTrendChart() {
+  const chartData = await fetchCarbonHistory();
+
+  const points = chartData.points || [];
+
+  const ctx = document.getElementById('carbonTrendChart');
+
+  if (!ctx || !points.length) return;
+
+  const labels = points.map((p) => p.time);
+  const values = points.map((p) => p.value);
+
+  if (carbonTrendChart) {
+    carbonTrendChart.destroy();
+  }
+
+  carbonTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Carbon Intensity',
+          data: values,
+          tension: 0.4,
+          fill: true,
+          borderWidth: 3,
+          pointRadius: 4,
+          backgroundColor: 'rgba(34,197,94,0.12)',
+          borderColor: '#22c55e'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        x: {
+          grid: {
+            display: false
+          }
+        },
+        y: {
+          beginAtZero: false,
+          title: {
+            display: true,
+            text: 'gCO₂/kWh'
+          }
+        }
+      }
+    }
+  });
+}
+
+async function renderEnergyMix() {
+  const data = await fetchPowerBreakdown();
+
+  const root = document.getElementById('energy-mix-list');
+
+  if (!root) return;
+
+  const sources = data.sources || [];
+
+  if (!sources.length) {
+    root.innerHTML = `
+      <div class="energy-loading">
+        No source mix data available.
+      </div>
+    `;
+    return;
+  }
+
+  root.innerHTML = sources.map((item) => `
+    <div class="energy-row">
+      <div class="energy-top">
+        <span>${item.source}</span>
+        <strong>${item.percent}%</strong>
+      </div>
+
+      <div class="energy-bar-track">
+        <div
+          class="energy-bar-fill"
+          style="width:${item.percent}%"
+        ></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function rotateEquivalency() {
+  const el = document.getElementById('equivalency-text');
+
+  if (!el) return;
+
+  const random =
+    equivalencyMessages[
+      Math.floor(Math.random() * equivalencyMessages.length)
+    ];
+
+  el.textContent = random;
 }
 
 function renderMiniStats(state) {

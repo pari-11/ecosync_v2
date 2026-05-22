@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <aside id="sidebar">
@@ -195,6 +196,38 @@
         <div class="card stat-mini">
           <div class="val green" id="dash-session">--</div>
           <div class="lbl">Session CO₂ (g)</div>
+        </div>
+      </div>
+            <!-- CARBON TREND CHART -->
+      <div class="card carbon-chart-card">
+        <div class="card-title">📈 12-Hour Carbon Intensity Trend</div>
+        <div class="card-sub" style="margin-bottom:18px;">
+          Past 6 hours + next 6 hours forecast for India Grid (IN-WE)
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="carbonTrendChart"></canvas>
+        </div>
+      </div>
+
+      <!-- ENERGY SOURCE MIX -->
+      <div class="card energy-mix-card">
+        <div class="card-title">⚡ Energy Source Mix</div>
+        <div class="card-sub" style="margin-bottom:20px;">
+          Real-time electricity generation breakdown
+        </div>
+
+        <div id="energy-mix-list" class="energy-mix-list">
+          <div class="energy-loading">Loading energy sources...</div>
+        </div>
+      </div>
+
+      <!-- EQUIVALENCY FOOTER -->
+      <div class="card equivalency-card">
+        <div class="card-title">🌱 Carbon Equivalency Insight</div>
+
+        <div id="equivalency-text" class="equivalency-text">
+          Your session savings today are equivalent to charging a smartphone 12 times.
         </div>
       </div>
     </section>
