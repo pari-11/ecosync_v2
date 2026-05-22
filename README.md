@@ -222,6 +222,7 @@ Worked on:
 * `main.py`
 * `website/main.html`
 * `website/app.js`
+* `extension/background.js`
 
 Contributions:
 
