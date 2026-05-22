@@ -2,6 +2,8 @@ const API = 'http://localhost:8000';
 const HEAVY_THRESHOLD_MINS = 1 / 6;
 const DOWNLOAD_POLL_MS = 1000;
 const COMMAND_POLL_MS = 1000;
+const GRID_CACHE_MS = 4000;
+const DOWNLOAD_PUSH_DEBOUNCE_MS = 150;
 
 let heavyTabs = [];
 let tabClassification = {};
@@ -13,6 +15,7 @@ const OVERLAY_COOLDOWN_MS = 30 * 60 * 1000;
 
 let downloadsState = {
   gridState: 'unknown',
+  pendingDecision: null,
   current: null,
   deferred: [],
   ledger: [],
@@ -23,6 +26,14 @@ let downloadsState = {
 const downloadStore = new Map();
 let downloadsPollTimer = null;
 let commandPollTimer = null;
+
+let lastGridSnapshot = {
+  intensity: 0,
+  gridState: 'unknown',
+  fetchedAt: 0
+};
+
+let downloadPushTimer = null;
 
 function classifyTab(tab) {
   if (!tab || !tab.url) return;
@@ -199,16 +210,33 @@ function getNextGreenWindow(gridState) {
   return { resumeAt: d.toISOString(), resumeAtLabel: formatResumeWindow(d) };
 }
 
-async function fetchGridCarbon() {
+async function fetchGridCarbon(force = false) {
+  const now = Date.now();
+  if (!force && lastGridSnapshot.fetchedAt && (now - lastGridSnapshot.fetchedAt) < GRID_CACHE_MS) {
+    return {
+      intensity: lastGridSnapshot.intensity,
+      gridState: lastGridSnapshot.gridState
+    };
+  }
+
   try {
     const res = await fetch(`${API}/api/carbon/live/in`);
     const data = await res.json();
-    return {
-      intensity: Number(data.intensity || 0),
-      gridState: data.trafficLight || setGridStateFromIntensity(Number(data.intensity || 0))
+    const intensity = Number(data.intensity || 0);
+    const gridState = data.trafficLight || setGridStateFromIntensity(intensity);
+
+    lastGridSnapshot = {
+      intensity,
+      gridState,
+      fetchedAt: Date.now()
     };
+
+    return { intensity, gridState };
   } catch (_) {
-    return { intensity: 0, gridState: downloadsState.gridState || 'unknown' };
+    return {
+      intensity: lastGridSnapshot.intensity || 0,
+      gridState: lastGridSnapshot.gridState || downloadsState.gridState || 'unknown'
+    };
   }
 }
 
@@ -226,10 +254,12 @@ function ensureDownloadRecord(item) {
     exists: typeof item.exists === 'boolean' ? item.exists : existing.exists,
     canResume: typeof item.canResume === 'boolean' ? item.canResume : existing.canResume,
     startTime: existing.startTime || Date.now(),
-    gridIntensity: existing.gridIntensity || 0,
-    gridState: existing.gridState || downloadsState.gridState || 'unknown',
+    gridIntensity: existing.gridIntensity || lastGridSnapshot.intensity || 0,
+    gridState: existing.gridState || lastGridSnapshot.gridState || downloadsState.gridState || 'unknown',
     liveCarbon: existing.liveCarbon || 0,
     deferred: !!existing.deferred,
+    awaitingDecision: !!existing.awaitingDecision,
+    decisionCreatedAt: existing.decisionCreatedAt || null,
     resumeAt: existing.resumeAt || null,
     resumeAtLabel: existing.resumeAtLabel || null,
     lastUpdated: Date.now()
@@ -249,14 +279,45 @@ function buildDownloadRow(item) {
     etaLabel: etaLabel(item),
     progress,
     carbonTicker: formatCarbon(item.liveCarbon || 0),
-    carbonCost: estimateTotalCarbonForDownload(item),
+    carbonCost: formatCarbon(estimateTotalCarbonForDownload(item)),
     currentCO2: Number(item.liveCarbon || 0),
     gridState: item.gridState || downloadsState.gridState || 'unknown',
-    status: item.deferred ? 'deferred' : item.paused ? 'paused' : item.state === 'complete' ? 'complete' : 'downloading',
+    status: item.awaitingDecision
+      ? 'awaiting-decision'
+      : item.deferred
+        ? 'deferred'
+        : item.paused
+          ? 'paused'
+          : item.state === 'complete'
+            ? 'complete'
+            : 'downloading',
+    awaitingDecision: !!item.awaitingDecision,
     resumeAt: item.resumeAt || null,
     resumeAtLabel: item.resumeAtLabel || null,
     canResume: !!item.canResume
   };
+}
+
+function getPendingDecisionItem() {
+  const pending = [...downloadStore.values()]
+    .filter((item) =>
+      item &&
+      item.awaitingDecision &&
+      item.state !== 'complete' &&
+      item.state !== 'cancelled'
+    )
+    .sort((a, b) => (b.decisionCreatedAt || 0) - (a.decisionCreatedAt || 0));
+
+  if (!pending.length) return null;
+  return buildDownloadRow(pending[0]);
+}
+
+function scheduleDownloadStatePush() {
+  if (downloadPushTimer) clearTimeout(downloadPushTimer);
+  downloadPushTimer = setTimeout(() => {
+    pushDownloadStateToBackend();
+    downloadPushTimer = null;
+  }, DOWNLOAD_PUSH_DEBOUNCE_MS);
 }
 
 async function refreshDownloadStoreFromChrome() {
@@ -275,7 +336,7 @@ async function refreshDownloadStoreFromChrome() {
         rec.totalBytes = typeof item.totalBytes === 'number' ? item.totalBytes : rec.totalBytes;
         rec.bytesReceived = typeof item.bytesReceived === 'number' ? item.bytesReceived : rec.bytesReceived;
         rec.state = item.state || rec.state;
-        rec.paused = !!item.paused;
+        rec.paused = typeof item.paused === 'boolean' ? item.paused : rec.paused;
         rec.exists = item.exists;
         rec.canResume = item.canResume;
         rec.gridIntensity = intensity;
@@ -283,10 +344,15 @@ async function refreshDownloadStoreFromChrome() {
         rec.liveCarbon = estimateCarbonForDownload(rec);
         rec.lastUpdated = Date.now();
 
+        if (rec.state === 'complete' || rec.state === 'cancelled' || rec.state === 'interrupted') {
+          rec.awaitingDecision = false;
+        }
+
         downloadStore.set(item.id, rec);
       }
 
-      syncDownloadState();
+      syncDownloadState({ skipBackendPush: true });
+      scheduleDownloadStatePush();
       resolve();
     });
   });
@@ -297,7 +363,8 @@ function getCurrentDownloadingItem() {
     item &&
     item.state === 'in_progress' &&
     !item.paused &&
-    !item.deferred
+    !item.deferred &&
+    !item.awaitingDecision
   );
 
   if (!candidates.length) return null;
@@ -317,8 +384,9 @@ function hasTrackedActiveDownloads() {
   return [...downloadStore.values()].some((item) =>
     item &&
     (
-      (item.state === 'in_progress' && !item.paused && !item.deferred) ||
-      item.deferred
+      (item.state === 'in_progress' && !item.paused && !item.deferred && !item.awaitingDecision) ||
+      item.deferred ||
+      item.awaitingDecision
     )
   );
 }
@@ -334,12 +402,15 @@ function ensureDownloadsPolling() {
   }, DOWNLOAD_POLL_MS);
 }
 
-function syncDownloadState() {
+function syncDownloadState({ skipBackendPush = false } = {}) {
+  downloadsState.pendingDecision = getPendingDecisionItem();
   const current = getCurrentDownloadingItem();
   downloadsState.current = current ? buildDownloadRow(current) : null;
   downloadsState.deferred = getDeferredItems();
   chrome.storage.local.set({ ecosyncDownloadsState: downloadsState }).catch(() => {});
-  pushDownloadStateToBackend();
+  if (!skipBackendPush) {
+    scheduleDownloadStatePush();
+  }
 }
 
 function pushDownloadStateToBackend() {
@@ -360,6 +431,7 @@ async function executeDownloadAction(actionType, id) {
       await chrome.downloads.pause(numericId);
       item.paused = true;
       item.deferred = false;
+      item.awaitingDecision = false;
       item.resumeAt = null;
       item.resumeAtLabel = null;
       downloadsState.ledger.unshift({
@@ -382,6 +454,7 @@ async function executeDownloadAction(actionType, id) {
       await chrome.downloads.pause(numericId);
       item.paused = true;
       item.deferred = true;
+      item.awaitingDecision = false;
       const greenWindow = getNextGreenWindow(downloadsState.gridState || item.gridState || 'unknown');
       item.resumeAt = greenWindow.resumeAt;
       item.resumeAtLabel = greenWindow.resumeAtLabel;
@@ -408,6 +481,7 @@ async function executeDownloadAction(actionType, id) {
       await chrome.downloads.resume(numericId);
       item.paused = false;
       item.deferred = false;
+      item.awaitingDecision = false;
       item.resumeAt = null;
       item.resumeAtLabel = null;
       item.state = 'in_progress';
@@ -432,6 +506,7 @@ async function executeDownloadAction(actionType, id) {
       item.state = 'cancelled';
       item.paused = false;
       item.deferred = false;
+      item.awaitingDecision = false;
       item.resumeAt = null;
       item.resumeAtLabel = null;
       downloadsState.cancelledCount = (downloadsState.cancelledCount || 0) + 1;
@@ -475,12 +550,30 @@ function ensureCommandPolling() {
 }
 
 chrome.downloads.onCreated.addListener(async (item) => {
-  ensureDownloadRecord(item);
+  const rec = ensureDownloadRecord(item);
+  const grid = await fetchGridCarbon();
+
+  rec.gridIntensity = grid.intensity;
+  rec.gridState = grid.gridState;
+  rec.awaitingDecision = true;
+  rec.decisionCreatedAt = Date.now();
+  rec.paused = true;
+  rec.state = item.state || 'in_progress';
+  downloadStore.set(item.id, rec);
+
+  try {
+    await chrome.downloads.pause(item.id);
+  } catch (_) {}
+
+  syncDownloadState();
   await refreshDownloadStoreFromChrome();
   ensureDownloadsPolling();
+
+  chrome.action.setBadgeText({ text: '1' }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ color: '#01696f' }).catch(() => {});
 });
 
-chrome.downloads.onChanged.addListener(async (delta) => {
+chrome.downloads.onChanged.addListener((delta) => {
   const current = downloadStore.get(delta.id) || { id: delta.id, startTime: Date.now() };
 
   if (delta.filename?.current) {
@@ -494,11 +587,23 @@ chrome.downloads.onChanged.addListener(async (delta) => {
   if (typeof delta.exists?.current === 'boolean') current.exists = delta.exists.current;
   if (typeof delta.canResume?.current === 'boolean') current.canResume = delta.canResume.current;
 
+  current.gridIntensity = lastGridSnapshot.intensity || current.gridIntensity || 0;
+  current.gridState = lastGridSnapshot.gridState || current.gridState || downloadsState.gridState || 'unknown';
+  current.liveCarbon = estimateCarbonForDownload(current);
+  current.lastUpdated = Date.now();
+
+  if (current.state === 'complete' || current.state === 'cancelled' || current.state === 'interrupted') {
+    current.awaitingDecision = false;
+  }
+
   downloadStore.set(delta.id, current);
 
-  await refreshDownloadStoreFromChrome();
+  syncDownloadState();
 
-  if (current.state === 'in_progress' || current.paused || current.deferred) {
+  const pending = getPendingDecisionItem();
+  chrome.action.setBadgeText({ text: pending ? '1' : '' }).catch(() => {});
+
+  if (current.state === 'in_progress' || current.paused || current.deferred || current.awaitingDecision) {
     ensureDownloadsPolling();
   }
 });
@@ -528,25 +633,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       heavyTabs: heavyTabs.map((id) => tabClassification[id]).filter(Boolean),
       allTabs: Object.values(tabClassification)
     });
+    return true;
   }
 
   if (request.action === 'suppressOverlay') {
     overlaySuppressed = true;
     sendResponse({ ok: true });
+    return true;
   }
 
   if (request.action === 'getSessionCO2') {
     sendResponse({ total: sessionCO2 });
+    return true;
+  }
+
+  if (request.action === 'getCarbonSnapshot') {
+    sendResponse({
+      intensity: lastGridSnapshot.intensity,
+      trafficLight: lastGridSnapshot.gridState,
+      timestamp: lastGridSnapshot.fetchedAt
+    });
+    return true;
   }
 
   if (request.action === 'downloads-action') {
-    executeDownloadAction(request.actionType, request.id).then((result) => sendResponse(result));
+    executeDownloadAction(request.actionType, request.id).then((result) => {
+      chrome.storage.local.get('ecosyncDownloadsState', (store) => {
+        const latest = store?.ecosyncDownloadsState || downloadsState;
+        sendResponse({ ...result, state: latest });
+      });
+    });
     return true;
   }
 
   if (request.action === 'getDownloadsState') {
     sendResponse(downloadsState);
+    return true;
   }
+
+  return false;
 });
 
 chrome.tabs.query({}, (tabs) => {
@@ -573,9 +698,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     let carbonIntensity = 0;
     let co2Rate = 0;
     try {
-      const res = await fetch(`${API}/api/carbon/live/in`);
-      const data = await res.json();
-      carbonIntensity = Number(data.intensity || 0);
+      const grid = await fetchGridCarbon();
+      carbonIntensity = Number(grid.intensity || 0);
       co2Rate = ((parseFloat(totalPower) * carbonIntensity) / 1000).toFixed(1);
       sessionCO2 += parseFloat(co2Rate) * (10 / 3600);
     } catch (_) {}
@@ -690,12 +814,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   let carbonIntensity = 0;
   let co2Rate = 0;
   try {
-    const res = await fetch(`${API}/api/carbon/live/in`);
-    const data = await res.json();
-    carbonIntensity = Number(data.intensity || 0);
+    const grid = await fetchGridCarbon(true);
+    carbonIntensity = Number(grid.intensity || 0);
     co2Rate = ((parseFloat(totalPower) * carbonIntensity) / 1000).toFixed(1);
     sessionCO2 += parseFloat(co2Rate) * (10 / 3600);
-    downloadsState.gridState = data.trafficLight || setGridStateFromIntensity(carbonIntensity);
+    downloadsState.gridState = grid.gridState || setGridStateFromIntensity(carbonIntensity);
   } catch (_) {}
 
   pushStateToBackend(carbonIntensity, co2Rate, totalPower, heavyCount);
