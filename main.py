@@ -47,7 +47,7 @@ async def root():
     return RedirectResponse(url="/website/main.html")
 
 
-ELECTRICITY_MAPS_TOKEN = "xkTxNfwG6jWHDK6jRbn"
+ELECTRICITY_MAPS_TOKEN = "fm2hJUymqumtbGPYUQwx"
 BLUEHANDS_API_KEY = "vO+osrpmYEOFDPY69SZRd8YliMyMkFmJS7285Hpq5KEL8T3Tg8E2AswFmuTtMWODCMh+pPssC7QnOib7vvkI2w=="
 
 
@@ -326,10 +326,9 @@ def post_download_command(cmd: DownloadCommand):
 async def live_carbon(zone: str):
   try:
     if zone == "in":
-      url = "https://api.electricitymap.org/v3/carbon-intensity/past"
+      url = "https://api.electricitymap.org/v3/carbon-intensity/latest"
       params = {
         "zone": "IN-WE",
-        "datetime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
       }
       headers = {"auth-token": ELECTRICITY_MAPS_TOKEN}
     elif zone == "de":
@@ -341,6 +340,7 @@ async def live_carbon(zone: str):
 
     async with httpx.AsyncClient(timeout=20) as client:
       r = await client.get(url, params=params, headers=headers)
+      print("Electricity Maps status:", r.status_code, "body:", r.text)
       data = r.json()
       intensity = data.get("carbonIntensity") or data.get("value") or 0
 
