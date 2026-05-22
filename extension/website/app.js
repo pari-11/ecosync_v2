@@ -586,6 +586,19 @@ function renderDeferredDownloads(items) {
         <span>Estimated CO₂ avoided</span>
         <strong>${formatCO2(item.carbonCost || 0)}</strong>
       </div>
+
+      <div class="download-carbon" style="margin-top:10px;">
+        <span>Estimated green window</span>
+        <strong>${escapeHTML(item.resumeAtLabel || 'Waiting for cleaner grid')}</strong>
+      </div>
+
+      <div class="download-meta" style="margin-top:10px;">
+        This download is paused and queued for a cleaner electricity window.
+      </div>
+
+      <div class="download-actions" style="margin-top:14px;">
+        <button class="download-btn pause" onclick="downloadAction('resume', ${item.id})">Resume now</button>
+      </div>
     </article>
   `).join('');
 }

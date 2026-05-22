@@ -168,6 +168,37 @@ function fileSizeLabel(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatResumeWindow(date) {
+  const now = new Date();
+  const sameDay = now.toDateString() === date.toDateString();
+  const dayLabel = sameDay ? 'Today' : date.toLocaleDateString([], { weekday: 'short' });
+  const timeLabel = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${dayLabel}, ${timeLabel}`;
+}
+
+function getNextGreenWindow(gridState) {
+  const now = new Date();
+
+  if (gridState === 'green') {
+    const d = new Date(now.getTime() + 15 * 60 * 1000);
+    return { resumeAt: d.toISOString(), resumeAtLabel: formatResumeWindow(d) };
+  }
+
+  if (gridState === 'yellow') {
+    const d = new Date(now.getTime() + 90 * 60 * 1000);
+    return { resumeAt: d.toISOString(), resumeAtLabel: formatResumeWindow(d) };
+  }
+
+  const d = new Date(now);
+  if (now.getHours() < 2) {
+    d.setHours(3, 0, 0, 0);
+  } else {
+    d.setDate(d.getDate() + 1);
+    d.setHours(3, 0, 0, 0);
+  }
+  return { resumeAt: d.toISOString(), resumeAtLabel: formatResumeWindow(d) };
+}
+
 async function fetchGridCarbon() {
   try {
     const res = await fetch(`${API}/api/carbon/live/in`);
@@ -199,6 +230,8 @@ function ensureDownloadRecord(item) {
     gridState: existing.gridState || downloadsState.gridState || 'unknown',
     liveCarbon: existing.liveCarbon || 0,
     deferred: !!existing.deferred,
+    resumeAt: existing.resumeAt || null,
+    resumeAtLabel: existing.resumeAtLabel || null,
     lastUpdated: Date.now()
   };
 
@@ -219,7 +252,10 @@ function buildDownloadRow(item) {
     carbonCost: estimateTotalCarbonForDownload(item),
     currentCO2: Number(item.liveCarbon || 0),
     gridState: item.gridState || downloadsState.gridState || 'unknown',
-    status: item.deferred ? 'deferred' : item.paused ? 'paused' : item.state === 'complete' ? 'complete' : 'downloading'
+    status: item.deferred ? 'deferred' : item.paused ? 'paused' : item.state === 'complete' ? 'complete' : 'downloading',
+    resumeAt: item.resumeAt || null,
+    resumeAtLabel: item.resumeAtLabel || null,
+    canResume: !!item.canResume
   };
 }
 
@@ -324,6 +360,8 @@ async function executeDownloadAction(actionType, id) {
       await chrome.downloads.pause(numericId);
       item.paused = true;
       item.deferred = false;
+      item.resumeAt = null;
+      item.resumeAtLabel = null;
       downloadsState.ledger.unshift({
         date: new Date().toLocaleString(),
         fileName: item.fileName,
@@ -344,13 +382,40 @@ async function executeDownloadAction(actionType, id) {
       await chrome.downloads.pause(numericId);
       item.paused = true;
       item.deferred = true;
+      const greenWindow = getNextGreenWindow(downloadsState.gridState || item.gridState || 'unknown');
+      item.resumeAt = greenWindow.resumeAt;
+      item.resumeAtLabel = greenWindow.resumeAtLabel;
+
       const saved = Math.max(0, estimateTotalCarbonForDownload(item) - (item.liveCarbon || 0));
       downloadsState.savedCO2 += saved;
       downloadsState.ledger.unshift({
         date: new Date().toLocaleString(),
         fileName: item.fileName,
-        action: 'Deferred to Green Window',
+        action: `Deferred · resumes around ${item.resumeAtLabel}`,
         carbon: `Saved ${formatCarbon(saved)}`
+      });
+      downloadStore.set(numericId, item);
+      syncDownloadState();
+      ensureDownloadsPolling();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
+  if (actionType === 'resume') {
+    try {
+      await chrome.downloads.resume(numericId);
+      item.paused = false;
+      item.deferred = false;
+      item.resumeAt = null;
+      item.resumeAtLabel = null;
+      item.state = 'in_progress';
+      downloadsState.ledger.unshift({
+        date: new Date().toLocaleString(),
+        fileName: item.fileName,
+        action: 'Resumed manually',
+        carbon: formatCarbon(item.liveCarbon || 0)
       });
       downloadStore.set(numericId, item);
       syncDownloadState();
@@ -367,6 +432,8 @@ async function executeDownloadAction(actionType, id) {
       item.state = 'cancelled';
       item.paused = false;
       item.deferred = false;
+      item.resumeAt = null;
+      item.resumeAtLabel = null;
       downloadsState.cancelledCount = (downloadsState.cancelledCount || 0) + 1;
       downloadsState.ledger.unshift({
         date: new Date().toLocaleString(),
