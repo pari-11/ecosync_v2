@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EcoSync</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <img src="../icons/logo.png" alt="EcoSync logo" />
+      <div class="sidebar-logo-text">
+        EcoSync
+        <span>Carbon-Aware Platform</span>
+      </div>
+    </div>
+
+    <nav>
+      <div class="nav-label">Menu</div>
+      <div class="nav-item active" data-page="home"><span class="icon">🏠</span> Home</div>
+      <div class="nav-item" data-page="dashboard"><span class="icon">📡</span> Dashboard</div>
+      <div class="nav-item" data-page="tab-auditor"><span class="icon">🗂️</span> Tab Auditor</div>
+      <div class="nav-item" data-page="downloads"><span class="icon">⬇️</span> Downloads Monitor<span class="nav-badge">Live</span></div>
+      <div class="nav-item" data-page="eco-scheduler"><span class="icon">🗓️</span> Eco-Scheduler<span class="nav-badge">Soon</span></div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span>EcoSync v1.0 · IN-WE</span>
+        <button
+          id="dark-toggle"
+          type="button"
+          onclick="toggleDark()"
+          style="
+            background:var(--bg);
+            border:1px solid var(--border);
+            border-radius:20px;
+            padding:4px 10px;
+            cursor:pointer;
+            font-size:12px;
+            color:var(--muted);
+            transition:all 0.2s ease;
+          "
+        >
+          🌙 Dark
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <section class="page active" id="page-home">
+      <div class="page-header">
+        <h1>EcoSync</h1>
+        <p>Your carbon-aware productivity platform. Monitor, schedule, and reduce your digital carbon footprint.</p>
+      </div>
+
+      <div class="hero-banner">
+        <div>
+          <h2>Live Grid · India (IN-WE)</h2>
+          <p>Real-time carbon intensity from Electricity Maps</p>
+          <div style="margin-top:14px;" id="home-tl-pill"></div>
+        </div>
+        <div class="hero-right">
+          <div class="hero-intensity" id="home-intensity">--</div>
+          <div class="hero-unit">gCO₂/kWh · <span id="home-timestamp">fetching...</span></div>
+        </div>
+      </div>
+
+      <div class="home-grid">
+        <div class="section-card" onclick="navigate('dashboard')">
+          <div class="section-card-header">
+            <div>
+              <div class="section-card-title">📡 Dashboard</div>
+              <div class="section-card-desc">Live grid carbon intensity, traffic light status, and CO₂ emission rate.</div>
+            </div>
+            <div class="section-card-icon" style="background:#eff4ff;color:var(--accent);">📡</div>
+          </div>
+          <div class="section-card-stats">
+            <div class="sc-stat">
+              <div class="v" id="home-co2" style="color:var(--text);">--</div>
+              <div class="l">CO₂/hr (g)</div>
+            </div>
+            <div class="sc-stat">
+              <div class="v green" id="home-session-co2">--</div>
+              <div class="l">Session CO₂</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-card" onclick="navigate('tab-auditor')">
+          <div class="section-card-header">
+            <div>
+              <div class="section-card-title">🗂️ Tab Auditor</div>
+              <div class="section-card-desc">All open tabs classified by energy type with per-tab power estimates.</div>
+            </div>
+            <div class="section-card-icon" style="background:#fffbeb;color:var(--yellow);">🗂️</div>
+          </div>
+          <div class="section-card-stats">
+            <div class="sc-stat"><div class="v red" id="home-heavy">--</div><div class="l">Heavy</div></div>
+            <div class="sc-stat"><div class="v yellow" id="home-dynamic">--</div><div class="l">Dynamic</div></div>
+            <div class="sc-stat"><div class="v green" id="home-static">--</div><div class="l">Static</div></div>
+            <div class="sc-stat"><div class="v blue" id="home-power">--</div><div class="l">Power (W)</div></div>
+          </div>
+        </div>
+
+        <div class="section-card" onclick="navigate('downloads')" style="opacity:0.98;">
+          <div class="section-card-header">
+            <div>
+              <div class="section-card-title">⬇️ Downloads Monitor <span class="pill pill-yellow" style="font-size:10px;vertical-align:middle;margin-left:6px;">Live</span></div>
+              <div class="section-card-desc">Pause, defer, or override browser downloads based on the current grid state.</div>
+            </div>
+            <div class="section-card-icon" style="background:#f0fdf4;color:var(--green);">⬇️</div>
+          </div>
+          <div class="section-card-stats">
+            <div class="sc-stat"><div class="v" id="home-download-active">--</div><div class="l">Active</div></div>
+            <div class="sc-stat"><div class="v" id="home-download-queue">--</div><div class="l">Queued</div></div>
+            <div class="sc-stat"><div class="v" id="home-download-saved">--</div><div class="l">CO₂ Saved</div></div>
+          </div>
+        </div>
+
+        <div class="section-card" onclick="navigate('eco-scheduler')" style="opacity:0.75;">
+          <div class="section-card-header">
+            <div>
+              <div class="section-card-title">🗓️ Eco-Scheduler <span class="pill pill-yellow" style="font-size:10px;vertical-align:middle;margin-left:6px;">Soon</span></div>
+              <div class="section-card-desc">Schedule energy-intensive tasks to low-carbon grid windows using Calendar integration.</div>
+            </div>
+            <div class="section-card-icon" style="background:#fef2f2;color:var(--red);">🗓️</div>
+          </div>
+          <div class="section-card-stats">
+            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">Scheduled</div></div>
+            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">Rescheduled</div></div>
+            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">CO₂ Saved</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-dashboard">
+      <div class="page-header">
+        <h1>📡 Dashboard</h1>
+        <p>Live grid carbon intensity and real-time stats.</p>
+      </div>
+
+      <div class="refresh-bar">
+        <span id="last-updated">Last updated: --</span>
+        <div style="display:flex;gap:8px;">
+          <button class="refresh-btn" id="sim-btn" type="button" onclick="toggleSimulate()">
+            🟢 Simulate Green Window
+          </button>
+          <button class="refresh-btn" type="button" onclick="loadDashboard()">
+            <span id="dash-spin">↻</span> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:16px;">
+        <div class="card" style="display:flex;align-items:center;gap:24px;">
+          <div id="dash-tl-circle" class="tl-circle tl-unknown">🌍</div>
+          <div>
+            <div class="card-title">Grid Status · India (IN-WE)</div>
+            <div class="card-value" id="dash-intensity">--</div>
+            <div class="card-sub">gCO₂/kWh</div>
+            <div style="margin-top:10px;" id="dash-pill"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Thresholds</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+              <span>🟢 Clean grid</span><span class="pill pill-green">&lt; 200 gCO₂/kWh</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+              <span>🟡 Moderate grid</span><span class="pill pill-yellow">200 – 400 gCO₂/kWh</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;">
+              <span>🔴 Dirty grid</span><span class="pill pill-red">&gt; 400 gCO₂/kWh</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card stat-mini">
+          <div class="val red" id="dash-co2">--</div>
+          <div class="lbl">CO₂ Rate (g/hr)</div>
+        </div>
+        <div class="card stat-mini">
+          <div class="val green" id="dash-session">--</div>
+          <div class="lbl">Session CO₂ (g)</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-tab-auditor">
+      <div class="page-header">
+        <h1>🗂️ Tab Auditor</h1>
+        <p>All tabs currently open, color-coded by energy type. Auto-refreshes every 15s.</p>
+      </div>
+
+      <div class="tab-auditor-shell" id="tab-auditor-shell">
+        <div class="tab-auditor-top">
+          <div class="card auditor-metrics-hub" id="auditor-metrics-hub">
+            <div class="auditor-hub-head">
+              <div>
+                <div class="card-title">Cumulative Browser Load</div>
+                <div class="card-sub">High-visibility summary of browser-wide power demand</div>
+              </div>
+              <div class="auditor-state-chip" id="auditor-grid-chip">Grid: --</div>
+            </div>
+
+            <div class="auditor-hub-grid">
+              <div class="power-gauge-wrap">
+                <div class="power-gauge">
+                  <svg viewBox="0 0 220 140" class="gauge-svg">
+                    <path d="M20 120 A90 90 0 0 1 200 120" class="gauge-track"></path>
+                    <path d="M20 120 A90 90 0 0 1 200 120" class="gauge-progress" id="gauge-progress"></path>
+                  </svg>
+                  <div class="gauge-center">
+                    <div class="gauge-label">Total Browser Power</div>
+                    <div class="gauge-value" id="gauge-power">--</div>
+                    <div class="gauge-sub">/ 100W optimal threshold</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="auditor-support-metrics">
+                <div class="support-metric">
+                  <div class="support-metric-label">Active Tab Load</div>
+                  <div class="support-metric-value" id="active-tab-load">--</div>
+                </div>
+                <div class="support-metric">
+                  <div class="support-metric-label">Background / Idle Leakage</div>
+                  <div class="support-metric-value" id="background-tab-load">--</div>
+                </div>
+                <div class="support-metric">
+                  <div class="support-metric-label">Optimal Threshold</div>
+                  <div class="support-metric-value">100W</div>
+                </div>
+                <div class="support-metric">
+                  <div class="support-metric-label">Soft Ceiling Alert</div>
+                  <div class="support-metric-value" id="soft-ceiling-status">--</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-auditor-main-grid">
+          <div class="tab-auditor-table-side">
+            <div class="refresh-bar">
+              <span id="tab-last-updated">Auto-refreshes every 15s · Last updated: --</span>
+              <button class="refresh-btn" type="button" onclick="loadTabs()">
+                <span id="tab-spin">↻</span> Refresh Now
+              </button>
+            </div>
+
+            <div class="action-feedback" id="bulk-action-feedback"></div>
+
+            <div class="grid-4" style="margin-bottom:16px;">
+              <div class="card stat-mini"><div class="val red" id="dash-heavy">--</div><div class="lbl">Heavy Tabs</div></div>
+              <div class="card stat-mini"><div class="val yellow" id="dash-dynamic">--</div><div class="lbl">Dynamic Tabs</div></div>
+              <div class="card stat-mini"><div class="val green" id="dash-static">--</div><div class="lbl">Static Tabs</div></div>
+              <div class="card stat-mini"><div class="val blue" id="dash-power">--</div><div class="lbl">Est. Power (W)</div></div>
+            </div>
+
+            <div class="card process-table-card">
+              <div class="process-table-head">
+                <div>
+                  <div class="card-title">High-Offenders Live Process Table</div>
+                  <div class="card-sub">Focused transparency for tab-level resource behavior</div>
+                </div>
+              </div>
+
+              <div class="table-wrap enhanced-table-wrap">
+                <table class="tab-table offender-table">
+                  <thead>
+                    <tr>
+                      <th style="padding-left:20px;">Tab Identity</th>
+                      <th>Classification</th>
+                      <th>Power</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tab-tbody">
+                    <tr><td colspan="3" style="text-align:center;padding:40px;color:var(--muted);">Loading tabs...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <aside class="tab-auditor-sidebar">
+            <div class="card telemetry-card">
+              <div class="card-title">Background Telemetry Diagnostics</div>
+              <div class="card-sub" style="margin-bottom:16px;">Live justification for “auditor” behavior</div>
+
+              <div class="telemetry-metric">
+                <div class="telemetry-label">Network Polling Tracker</div>
+                <div class="telemetry-value" id="polling-tracker">--</div>
+                <div class="telemetry-sub">Asynchronous XHR/fetch loops caught in the last 60 seconds</div>
+              </div>
+
+              <div class="telemetry-metric">
+                <div class="telemetry-label">Zombie Carbon Accumulator</div>
+                <div class="telemetry-value" id="zombie-accumulator">--</div>
+                <div class="telemetry-sub">Estimated emissions from tabs hidden from the active viewport this session</div>
+              </div>
+
+              <div class="telemetry-metric telemetry-list-box">
+                <div class="telemetry-label">Live Diagnostic Snapshot</div>
+                <ul class="telemetry-list">
+                  <li><span>Background tabs over 15 min</span><strong id="diag-old-bg-tabs">--</strong></li>
+                  <li><span>Polling offenders</span><strong id="diag-poll-offenders">--</strong></li>
+                  <li><span>Audible/video heavy tabs</span><strong id="diag-heavy-runtime">--</strong></li>
+                </ul>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-downloads">
+      <div class="page-header">
+        <h1>⬇️ Downloads Monitor</h1>
+        <p>Real-time browser download control with carbon-aware scheduling.</p>
+      </div>
+
+      <div class="downloads-shell">
+        <div class="downloads-top-grid">
+          <div class="downloads-live-panel card">
+            <div class="downloads-panel-head">
+              <div>
+                <div class="card-title">Live Process Feed</div>
+                <div class="card-sub">Active downloads anywhere in Chrome, updated in real time.</div>
+              </div>
+              <div class="downloads-status-pill" id="downloads-grid-state">Grid: --</div>
+            </div>
+
+            <div class="downloads-stats-grid">
+              <div class="downloads-stat">
+                <div class="downloads-stat-value" id="downloads-active-count">0</div>
+                <div class="downloads-stat-label">Active Downloads</div>
+              </div>
+              <div class="downloads-stat">
+                <div class="downloads-stat-value" id="downloads-queued-count">0</div>
+                <div class="downloads-stat-label">Pending Eco-Tasks</div>
+              </div>
+              <div class="downloads-stat">
+                <div class="downloads-stat-value" id="downloads-saved-total">0g</div>
+                <div class="downloads-stat-label">Emissions Diverted</div>
+              </div>
+              <div class="downloads-stat">
+                <div class="downloads-stat-value" id="downloads-override-total">0</div>
+                <div class="downloads-stat-label">Overdrafts</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="downloads-alert card" id="downloads-dirty-alert">
+            <div class="downloads-alert-title">Dirty Grid Interception</div>
+            <p>The electricity grid is currently under heavy stress. Running this download right now will generate avoidable carbon emissions.</p>
+          </div>
+        </div>
+
+        <div class="downloads-board">
+          <div class="downloads-section">
+            <div class="downloads-section-head">
+              <h2>Active Downloads</h2>
+              <span class="pill pill-blue" id="downloads-live-sync">Syncing</span>
+            </div>
+            <div id="downloads-active-list" class="downloads-list"></div>
+          </div>
+
+          <div class="downloads-section">
+            <div class="downloads-section-head">
+              <h2>Pending Eco-Tasks Queue</h2>
+              <span class="pill pill-green">Queued</span>
+            </div>
+            <div id="downloads-queue-list" class="downloads-list"></div>
+          </div>
+        </div>
+
+        <div class="downloads-ledger card">
+          <div class="downloads-ledger-head">
+            <div>
+              <div class="card-title">Historical Balance Ledger</div>
+              <div class="card-sub">Long-term carbon impact of pause, schedule, and override decisions.</div>
+            </div>
+          </div>
+
+          <div class="ledger-summary">
+            <div class="ledger-stat">
+              <div class="ledger-value" id="ledger-saved">0g CO₂ Prevented</div>
+              <div class="ledger-label">Emissions Diverted</div>
+            </div>
+            <div class="ledger-stat">
+              <div class="ledger-value" id="ledger-overdrafts">0</div>
+              <div class="ledger-label">Carbon Overdrafts</div>
+            </div>
+          </div>
+
+          <div class="table-wrap enhanced-table-wrap">
+            <table class="tab-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>File Name</th>
+                  <th>Action</th>
+                  <th>Carbon Impact</th>
+                </tr>
+              </thead>
+              <tbody id="ledger-table">
+                <tr><td colspan="4" style="text-align:center;padding:24px;color:var(--muted);">No entries yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-eco-scheduler">
+      <div class="page-header">
+        <h1>🗓️ Eco-Scheduler</h1>
+        <p>Schedule heavy tasks to green grid windows.</p>
+      </div>
+      <div class="coming-soon">
+        <div class="cs-icon">🗓️</div>
+        <h3>Eco-Scheduler — Coming Soon</h3>
+        <p>This section will integrate with Google Calendar to automatically reschedule energy-intensive tasks — backups, renders, uploads — to low-carbon grid windows overnight.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tab Auditor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 340px;
+      background: #0f1117;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', sans-serif;
+      padding: 16px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .header img { width: 28px; height: 28px; }
+    .header h1 { font-size: 18px; font-weight: 700; color: #fff; }
+
+    /* Traffic Light Card */
+    .carbon-card {
+      background: #1a1d27;
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .light {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .light.red    { background: #e53935; box-shadow: 0 0 16px #e5393588; }
+    .light.yellow { background: #f9a825; box-shadow: 0 0 16px #f9a82588; }
+    .light.green  { background: #43a047; box-shadow: 0 0 16px #43a04788; }
+    .light.grey   { background: #555; }
+
+    .carbon-info { flex: 1; }
+    .carbon-info .label { font-size: 11px; color: #aaa; letter-spacing: 0.5px; }
+    .carbon-info .intensity { font-size: 22px; font-weight: 700; color: #fff; }
+    .carbon-info .sublabel { font-size: 11px; color: #888; margin-top: 2px; }
+
+    /* Stats Row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat-box {
+      background: #1a1d27;
+      border-radius: 10px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+    .stat-box .count { font-size: 22px; font-weight: 700; }
+    .stat-box .type  { font-size: 10px; color: #aaa; margin-top: 2px; }
+    .stat-box.heavy   .count { color: #e53935; }
+    .stat-box.dynamic .count { color: #f9a825; }
+    .stat-box.static  .count { color: #43a047; }
+
+    /* Power + CO2 row */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .metric-box {
+      background: #1a1d27;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .metric-box .m-label { font-size: 10px; color: #aaa; margin-bottom: 4px; }
+    .metric-box .m-value { font-size: 16px; font-weight: 700; color: #fff; }
+    .metric-box .m-unit  { font-size: 10px; color: #888; }
+
+    /* Alert Banner */
+    .alert-banner {
+      background: #2d1a1a;
+      border: 1px solid #e5393566;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #ff8a80;
+      margin-bottom: 12px;
+    }
+    .alert-banner.hidden { display: none; }
+
+    /* Tab breakdown */
+    .section-title {
+      font-size: 11px;
+      color: #888;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .tabs-list {
+      background: #1a1d27;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .tab-row {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid #ffffff0d;
+      gap: 8px;
+    }
+    .tab-row:last-child { border-bottom: none; }
+    .tab-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-red    { background: #e53935; }
+    .dot-yellow { background: #f9a825; }
+    .dot-green  { background: #43a047; }
+
+    .tab-name {
+      flex: 1;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #ddd;
+    }
+    .tab-power {
+      font-size: 11px;
+      color: #aaa;
+      margin-right: 6px;
+    }
+    .tab-badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .badge-heavy   { background: #e5393522; color: #e53935; }
+    .badge-dynamic { background: #f9a82522; color: #f9a825; }
+    .badge-static  { background: #43a04722; color: #43a047; }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-refresh     { background: #1976d2; color: #fff; }
+    .btn-close-heavy { background: #b71c1c; color: #fff; }
+    .btn-close-heavy.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <img src="../icons/globe.png" alt="icon"/>
+    <h1>Tab Auditor</h1>
+  </div>
+
+  <!-- Carbon Card -->
+  <div class="carbon-card">
+    <div class="light grey" id="traffic-light"></div>
+    <div class="carbon-info">
+      <div class="label" id="grid-label">Loading grid data...</div>
+      <div class="intensity"><span id="intensity">--</span> <span style="font-size:13px;color:#aaa">gCO₂/kWh</span></div>
+      <div class="sublabel">India · Live</div>
+    </div>
+  </div>
+
+  <!-- Tab Counts -->
+  <div class="stats-row">
+    <div class="stat-box heavy">
+      <div class="count" id="heavy-count">0</div>
+      <div class="type">Heavy Tabs</div>
+    </div>
+    <div class="stat-box dynamic">
+      <div class="count" id="dynamic-count">0</div>
+      <div class="type">Dynamic Tabs</div>
+    </div>
+    <div class="stat-box static">
+      <div class="count" id="static-count">0</div>
+      <div class="type">Static Tabs</div>
+    </div>
+  </div>
+
+  <!-- Power + CO2 Metrics -->
+  <div class="metrics-row">
+    <div class="metric-box">
+      <div class="m-label">⚡ EST. POWER</div>
+      <div class="m-value"><span id="total-power">--</span> <span class="m-unit">W</span></div>
+    </div>
+    <div class="metric-box">
+      <div class="m-label">💨 CO₂ RATE</div>
+      <div class="m-value"><span id="co2-rate">--</span> <span class="m-unit">g/hr</span></div>
+    </div>
+    <div class="metric-box">
+        <div class="metric-value" id="session-co2">0.00g</div>
+        <div class="metric-label">Session CO₂</div>
+    </div>
+
+  </div>
+
+  <!-- Alert Banner -->
+  <div class="alert-banner hidden" id="alert-banner">
+    <span id="alert-msg"></span>
+  </div>
+
+  <!-- All Tabs Breakdown -->
+  <div class="section-title">Tab Breakdown</div>
+  <div class="tabs-list" id="tabs-list"></div>
+
+  <!-- Buttons -->
+  <div class="btn-row">
+    <button class="btn btn-refresh" id="refresh-btn">⟳ Refresh</button>
+    <button class="btn btn-close-heavy hidden" id="close-heavy-btn">🗑 Close All Heavy</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

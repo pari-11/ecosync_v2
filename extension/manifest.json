@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Auditor",
+  "version": "1.0",
+  "description": "Carbon-aware tab monitoring",
+  "permissions": ["tabs", "scripting", "notifications", "alarms"],
+  "host_permissions": ["http://localhost:8000/*", "<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/index.html"
+  },
+  "icons": {
+    "48": "icons/globe.png"
+  }
+}
