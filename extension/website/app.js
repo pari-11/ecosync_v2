@@ -10,11 +10,11 @@ let currentCarbon = { intensity: 0, trafficLight: 'unknown', zone: 'in' };
 let currentState = { tabs: [], sessionCO2: 0 };
 let currentDownloadsState = {
   gridState: 'unknown',
-  active: [],
-  queued: [],
+  current: null,
+  deferred: [],
   ledger: [],
   savedCO2: 0,
-  overdrafts: 0
+  cancelledCount: 0
 };
 
 function navigate(page) {
@@ -54,11 +54,23 @@ function tlEmoji(tl) {
 }
 
 function tlLabel(tl) {
-  return tl === 'red' ? 'GRID IS DIRTY' : tl === 'yellow' ? 'GRID IS MODERATE' : tl === 'green' ? 'GRID IS CLEAN' : 'UNKNOWN';
+  return tl === 'red'
+    ? 'GRID IS DIRTY'
+    : tl === 'yellow'
+      ? 'GRID IS MODERATE'
+      : tl === 'green'
+        ? 'GRID IS CLEAN'
+        : 'UNKNOWN';
 }
 
 function pillHTML(tl) {
-  const cls = tl === 'red' ? 'pill-red' : tl === 'yellow' ? 'pill-yellow' : tl === 'green' ? 'pill-green' : 'pill-blue';
+  const cls = tl === 'red'
+    ? 'pill-red'
+    : tl === 'yellow'
+      ? 'pill-yellow'
+      : tl === 'green'
+        ? 'pill-green'
+        : 'pill-blue';
   return `<span class="pill ${cls}">${tlEmoji(tl)} ${tlLabel(tl)}</span>`;
 }
 
@@ -71,7 +83,8 @@ function formatWatts(num) {
 }
 
 function formatCO2(num) {
-  return `${Number(num || 0).toFixed(2)}g`;
+  const value = Number(num || 0);
+  return value >= 1000 ? `${(value / 1000).toFixed(2)}kg CO₂` : `${value.toFixed(2)}g CO₂`;
 }
 
 function hostnameOf(url) {
@@ -139,20 +152,13 @@ async function fetchDownloadsState() {
   } catch (_) {
     return {
       gridState: 'unknown',
-      active: [],
-      queued: [],
+      current: null,
+      deferred: [],
       ledger: [],
       savedCO2: 0,
-      overdrafts: 0
+      cancelledCount: 0
     };
   }
-}
-
-function showFeedback(message, good = true) {
-  const el = document.getElementById('bulk-action-feedback');
-  if (!el) return;
-  el.textContent = message;
-  el.style.color = good ? 'var(--green)' : 'var(--red)';
 }
 
 function toggleSimulate() {
@@ -174,12 +180,8 @@ function toggleSimulate() {
   }
 
   loadDashboard();
-  if (document.getElementById('page-tab-auditor')?.classList.contains('active')) {
-    loadTabs();
-  }
-  if (document.getElementById('page-downloads')?.classList.contains('active')) {
-    loadDownloads();
-  }
+  if (document.getElementById('page-tab-auditor')?.classList.contains('active')) loadTabs();
+  if (document.getElementById('page-downloads')?.classList.contains('active')) loadDownloads();
 }
 
 async function loadDashboard() {
@@ -189,9 +191,7 @@ async function loadDashboard() {
   try {
     let [carbon, state] = await Promise.all([fetchCarbon(), fetchState()]);
 
-    if (simulating) {
-      carbon = { intensity: 87, trafficLight: 'green', zone: 'in' };
-    }
+    if (simulating) carbon = { intensity: 87, trafficLight: 'green', zone: 'in' };
 
     currentCarbon = carbon;
     currentState = state;
@@ -239,6 +239,11 @@ async function loadDashboard() {
     setText('home-heavy', heavy.length);
     setText('home-dynamic', dynamic.length);
     setText('home-static', statik.length);
+
+    const currentDownload = currentDownloadsState.current;
+    setText('home-download-active', currentDownload ? 1 : 0);
+    setText('home-download-queue', (currentDownloadsState.deferred || []).length);
+    setText('home-download-saved', `${Number(currentDownloadsState.savedCO2 || 0).toFixed(2)}g`);
   } catch (e) {
     setText('dash-intensity', 'Offline');
     setText('home-intensity', 'Offline');
@@ -404,7 +409,6 @@ async function loadTabs() {
 
     const state = await fetchState();
     currentState = state;
-
     renderAllFromCurrentState();
   } catch (e) {
     console.error(e);
@@ -429,11 +433,16 @@ async function loadDownloads() {
 
   try {
     const state = await fetchDownloadsState();
-    if (simulating) {
-      state.gridState = 'green';
-    }
+    if (simulating) state.gridState = 'green';
+
     currentDownloadsState = state;
     renderDownloads(state);
+
+    setText('home-download-active', state.current ? 1 : 0);
+    setText('home-download-queue', (state.deferred || []).length);
+    setText('home-download-saved', `${Number(state.savedCO2 || 0).toFixed(2)}g`);
+    setText('downloads-last-updated', `Live download state · ${formatTime()}`);
+
     if (sync) sync.textContent = 'Live';
   } catch (e) {
     console.error(e);
@@ -443,18 +452,18 @@ async function loadDownloads() {
 }
 
 function renderDownloads(state) {
-  const active = state.active || [];
-  const queued = state.queued || [];
+  const current = state.current || null;
+  const deferred = state.deferred || [];
   const ledger = state.ledger || [];
   const savedCO2 = Number(state.savedCO2 || 0);
-  const overdrafts = Number(state.overdrafts || 0);
+  const cancelledCount = Number(state.cancelledCount || 0);
 
-  setText('downloads-active-count', active.length);
-  setText('downloads-queued-count', queued.length);
-  setText('downloads-saved-total', `${savedCO2.toFixed(0)}g`);
-  setText('downloads-override-total', overdrafts);
-  setText('ledger-saved', `${savedCO2.toFixed(0)}g CO₂ Prevented`);
-  setText('ledger-overdrafts', overdrafts);
+  setText('downloads-active-count', current ? 1 : 0);
+  setText('downloads-queued-count', deferred.length);
+  setText('downloads-saved-total', formatCO2(savedCO2));
+  setText('downloads-override-total', cancelledCount);
+  setText('ledger-saved', `${formatCO2(savedCO2)} Prevented`);
+  setText('ledger-overdrafts', cancelledCount);
   setText('downloads-grid-state', `Grid: ${String(state.gridState || 'unknown').toUpperCase()}`);
 
   const statePill = document.getElementById('downloads-grid-state');
@@ -465,92 +474,120 @@ function renderDownloads(state) {
     else if (state.gridState === 'yellow') statePill.classList.add('yellow');
   }
 
-  renderDownloadList('downloads-active-list', active, false);
-  renderDownloadList('downloads-queue-list', queued, true);
+  renderCurrentDownload(current);
+  renderDeferredDownloads(deferred);
   renderLedger(ledger);
 
   const alert = document.getElementById('downloads-dirty-alert');
-  if (alert) alert.style.display = state.gridState === 'red' ? 'flex' : 'none';
+  if (alert) alert.style.display = current && state.gridState === 'red' ? 'flex' : 'none';
 }
 
-function renderDownloadList(containerId, items, queued) {
-  const root = document.getElementById(containerId);
+function renderCurrentDownload(item) {
+  const root = document.getElementById('downloads-active-list');
   if (!root) return;
 
-  if (!items.length) {
+  if (!item) {
     root.innerHTML = `
       <div class="download-empty">
-        ${queued ? 'No deferred downloads in the eco queue.' : 'No active downloads right now.'}
+        No active downloads right now.
       </div>
     `;
     return;
   }
 
-  root.innerHTML = items.map((item) => {
-    const pct = Number(item.progress || 0);
-    const progressStyle = `width:${Math.max(0, Math.min(pct, 100))}%`;
-    const stateClass = item.gridState === 'red' ? 'red' : item.gridState === 'yellow' ? 'yellow' : 'green';
-    const carbon = Number(item.carbonCost || 0);
-    const overrideLabel = `Run Now (Adds ${carbon >= 1000 ? (carbon / 1000).toFixed(1) + 'kg' : carbon.toFixed(0) + 'g'} CO₂ to your Direct Footprint)`;
+  const pct = Number(item.progress || 0);
+  const progressStyle = `width:${Math.max(0, Math.min(pct, 100))}%`;
+  const stateClass = item.gridState === 'red' ? 'red' : item.gridState === 'yellow' ? 'yellow' : 'green';
 
-    return `
-      <article class="download-card ${stateClass} ${queued ? 'moved' : ''} ${item.gridState === 'red' ? 'dirty' : ''}" data-id="${escapeHTML(String(item.id))}">
-        <div class="download-warning-banner">
-          The electricity grid is currently under heavy stress. Running this download right now will generate avoidable carbon emissions.
-        </div>
+  root.innerHTML = `
+    <article class="download-card ${stateClass} ${item.gridState === 'red' ? 'dirty' : ''}" data-id="${escapeHTML(String(item.id))}">
+      <div class="download-warning-banner">
+        The electricity grid is currently under heavy stress. Running this download right now will generate avoidable carbon emissions.
+      </div>
 
-        <div class="download-card-head">
-          <div>
-            <div class="download-title">${escapeHTML(item.fileName || 'Unknown File')}</div>
-            <div class="download-meta">
-              <span>${escapeHTML(item.fileSizeLabel || '--')}</span>
-              <span>•</span>
-              <span>${escapeHTML(item.speedLabel || '--')}</span>
-              <span>•</span>
-              <span>${escapeHTML(item.etaLabel || '--')}</span>
-            </div>
-            <div class="download-chip">Carbon ticker: <span class="download-carbon-ticker">${escapeHTML(item.carbonTicker || '0g CO₂')}</span></div>
+      <div class="download-card-head">
+        <div>
+          <div class="download-title">${escapeHTML(item.fileName || 'Unknown File')}</div>
+          <div class="download-meta">
+            <span>${escapeHTML(item.fileSizeLabel || '--')}</span>
+            <span>•</span>
+            <span>${escapeHTML(item.speedLabel || '--')}</span>
+            <span>•</span>
+            <span>${escapeHTML(item.etaLabel || '--')}</span>
           </div>
-          <div class="pill ${stateClass === 'red' ? 'pill-red' : stateClass === 'yellow' ? 'pill-yellow' : 'pill-green'}">${escapeHTML(String(item.status || 'in progress').toUpperCase())}</div>
+          <div class="download-chip">Current CO₂ used: <span class="download-carbon-ticker">${escapeHTML(item.carbonTicker || '0.00g CO₂')}</span></div>
         </div>
+        <div class="pill ${stateClass === 'red' ? 'pill-red' : stateClass === 'yellow' ? 'pill-yellow' : 'pill-green'}">${escapeHTML(String(item.status || 'downloading').toUpperCase())}</div>
+      </div>
 
-        <div class="download-progress-wrap">
-          <div class="download-progress-track">
-            <div class="download-progress-bar" style="${progressStyle}"></div>
-          </div>
+      <div class="download-progress-wrap">
+        <div class="download-progress-track">
+          <div class="download-progress-bar" style="${progressStyle}"></div>
         </div>
+      </div>
 
-        <div class="download-metrics-row">
-          <div class="download-metric">
-            <div class="download-metric-label">Progress</div>
-            <div class="download-metric-value">${pct.toFixed(0)}%</div>
-          </div>
-          <div class="download-metric">
-            <div class="download-metric-label">Speed</div>
-            <div class="download-metric-value">${escapeHTML(item.speedLabel || '--')}</div>
-          </div>
-          <div class="download-metric">
-            <div class="download-metric-label">ETA</div>
-            <div class="download-metric-value">${escapeHTML(item.etaLabel || '--')}</div>
-          </div>
+      <div class="download-metrics-row">
+        <div class="download-metric">
+          <div class="download-metric-label">Progress</div>
+          <div class="download-metric-value">${pct.toFixed(0)}%</div>
         </div>
+        <div class="download-metric">
+          <div class="download-metric-label">Speed</div>
+          <div class="download-metric-value">${escapeHTML(item.speedLabel || '--')}</div>
+        </div>
+        <div class="download-metric">
+          <div class="download-metric-label">ETA</div>
+          <div class="download-metric-value">${escapeHTML(item.etaLabel || '--')}</div>
+        </div>
+      </div>
 
-        <div class="download-carbon">
-          <span>Live carbon cost</span>
-          <strong>${escapeHTML(item.carbonTicker || '0g CO₂')}</strong>
-        </div>
+      <div class="download-carbon">
+        <span>Live carbon cost so far</span>
+        <strong>${escapeHTML(item.carbonTicker || '0.00g CO₂')}</strong>
+      </div>
 
-        <div class="download-actions">
-          <button class="download-btn pause" onclick="downloadAction('pause', ${item.id})">Pause &amp; Defer to Green Window</button>
-          <div class="download-action-row">
-            <input class="download-input" type="time" value="${escapeHTML(item.deadlineTime || '')}" onchange="downloadDeadlineChange(${item.id}, this.value)" aria-label="Deadline time for ${escapeHTML(item.fileName || 'download')}" />
-            <button class="download-btn queue" onclick="downloadAction('deadline', ${item.id})">Deadline-Aware Queue</button>
-          </div>
-          <button class="download-btn override" onclick="downloadAction('override', ${item.id})">${overrideLabel}</button>
-        </div>
-      </article>
+      <div class="download-actions">
+        <button class="download-btn queue" onclick="downloadAction('defer', ${item.id})">Defer to Green Window</button>
+        <button class="download-btn pause" onclick="downloadAction('pause', ${item.id})">Pause</button>
+        <button class="download-btn override" onclick="downloadAction('cancel', ${item.id})">Cancel</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderDeferredDownloads(items) {
+  const root = document.getElementById('downloads-queue-list');
+  if (!root) return;
+
+  if (!items.length) {
+    root.innerHTML = `
+      <div class="download-empty">
+        No deferred downloads right now.
+      </div>
     `;
-  }).join('');
+    return;
+  }
+
+  root.innerHTML = items.map((item) => `
+    <article class="download-card moved ${item.gridState === 'red' ? 'red' : item.gridState === 'yellow' ? 'yellow' : 'green'}" data-id="${escapeHTML(String(item.id))}">
+      <div class="download-card-head">
+        <div>
+          <div class="download-title">${escapeHTML(item.fileName || 'Unknown File')}</div>
+          <div class="download-meta">
+            <span>${escapeHTML(item.fileSizeLabel || '--')}</span>
+            <span>•</span>
+            <span>Deferred</span>
+          </div>
+        </div>
+        <div class="pill pill-green">DEFERRED</div>
+      </div>
+
+      <div class="download-carbon">
+        <span>Estimated CO₂ avoided</span>
+        <strong>${formatCO2(item.carbonCost || 0)}</strong>
+      </div>
+    </article>
+  `).join('');
 }
 
 function renderLedger(entries) {
@@ -572,34 +609,28 @@ function renderLedger(entries) {
   `).join('');
 }
 
-async function downloadAction(action, id) {
+async function downloadAction(actionType, id) {
   try {
-    const res = await fetch(`${API}/api/downloads/action`, {
+    const res = await fetch(`${API}/api/downloads/commands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, id, deadline: action === 'deadline' ? document.querySelector(`[data-id="${id}"] .download-input`)?.value || '' : '' })
+      body: JSON.stringify({
+        action: actionType,
+        download_id: Number(id)
+      })
     });
-    if (!res.ok) throw new Error('Action failed');
+
+    if (!res.ok) {
+      throw new Error(`Command API failed: ${res.status}`);
+    }
+
     await loadDownloads();
   } catch (e) {
     console.error(e);
   }
 }
 
-async function downloadDeadlineChange(id, deadline) {
-  try {
-    await fetch(`${API}/api/downloads/deadline`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, deadline })
-    });
-    await loadDownloads();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   try {
     if (localStorage.getItem('ecosync-theme') === 'dark') {
       document.body.classList.add('dark');
@@ -612,5 +643,5 @@ window.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('click', () => navigate(el.dataset.page));
   });
 
-  loadDashboard();
+  await Promise.allSettled([loadDashboard(), loadDownloads()]);
 });

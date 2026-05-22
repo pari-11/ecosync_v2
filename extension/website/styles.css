@@ -23,7 +23,7 @@
   --green-bg: #f0fdf4;
   --nav-w: 260px;
   --radius: 14px;
-  --shadow: 0 2px 12px rgba(0,0,0,0.07);
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   --orange: #ff7a18;
 }
 
@@ -181,7 +181,7 @@ nav {
 
 .card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.10);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
 }
 
 .card-title {
@@ -239,7 +239,7 @@ nav {
 
 .section-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.11);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.11);
 }
 
 .section-card-header {
@@ -454,7 +454,7 @@ nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 4px 20px rgba(26,32,53,0.15);
+  box-shadow: 0 4px 20px rgba(26, 32, 53, 0.15);
 }
 
 .hero-banner h2 {
@@ -465,7 +465,7 @@ nav {
 
 .hero-banner p {
   font-size: 13px;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .hero-right {
@@ -480,7 +480,7 @@ nav {
 
 .hero-unit {
   font-size: 13px;
-  color: rgba(255,255,255,0.55);
+  color: rgba(255, 255, 255, 0.55);
   margin-top: 4px;
 }
 
@@ -496,7 +496,7 @@ nav {
 
 @keyframes shellPulse {
   0%, 100% { box-shadow: none; }
-  50% { box-shadow: 0 0 0 3px rgba(229,57,53,0.08); }
+  50% { box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.08); }
 }
 
 .tab-auditor-top {
@@ -515,10 +515,10 @@ nav {
 
 @keyframes hubPulse {
   0%, 100% {
-    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
   }
   50% {
-    box-shadow: 0 0 0 3px rgba(229,57,53,0.10), 0 0 28px rgba(229,57,53,0.16);
+    box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.1), 0 0 28px rgba(229, 57, 53, 0.16);
   }
 }
 
@@ -598,7 +598,7 @@ nav {
   stroke-dasharray: 283;
   stroke-dashoffset: 283;
   transition: stroke-dashoffset 0.45s ease, stroke 0.25s ease, filter 0.25s ease;
-  filter: drop-shadow(0 4px 10px rgba(59,110,246,0.12));
+  filter: drop-shadow(0 4px 10px rgba(59, 110, 246, 0.12));
 }
 
 .gauge-progress.green {
@@ -611,7 +611,7 @@ nav {
 
 .gauge-progress.red {
   stroke: var(--red);
-  filter: drop-shadow(0 4px 12px rgba(229,57,53,0.18));
+  filter: drop-shadow(0 4px 12px rgba(229, 57, 53, 0.18));
 }
 
 .gauge-center {
@@ -824,7 +824,7 @@ nav {
 
 .telemetry-metric {
   padding: 14px 0;
-  border-bottom: 1px solid rgba(221,227,236,0.9);
+  border-bottom: 1px solid rgba(221, 227, 236, 0.9);
 }
 
 .telemetry-metric:last-child {
@@ -883,6 +883,8 @@ nav {
   animation: spin 1s linear infinite;
   display: inline-block;
 }
+
+/* Downloads Monitor */
 
 .downloads-shell {
   display: grid;
@@ -945,6 +947,7 @@ nav {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 12px;
+  backdrop-filter: blur(4px);
 }
 
 .downloads-stat-value {
@@ -952,6 +955,9 @@ nav {
   font-weight: 800;
   color: var(--text);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  word-break: break-word;
 }
 
 .downloads-stat-label {
@@ -989,8 +995,15 @@ nav {
 
 .downloads-board {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.4fr 1fr;
   gap: 16px;
+}
+
+.downloads-board-single {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  align-items: start;
 }
 
 .downloads-section {
@@ -999,6 +1012,7 @@ nav {
   border-radius: var(--radius);
   padding: 20px 24px;
   box-shadow: var(--shadow);
+  content-visibility: auto;
 }
 
 .downloads-section-head {
@@ -1015,35 +1029,43 @@ nav {
 }
 
 .downloads-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
 .download-card {
   border: 1px solid var(--border);
   background: var(--surface-soft);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 18px;
+  padding: 18px;
   position: relative;
   overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  content-visibility: auto;
 }
 
-.download-card.red {
-  border-color: #fca5a5;
-  box-shadow: 0 0 0 1px rgba(229,57,53,0.10), 0 0 0 4px rgba(229,57,53,0.05);
-}
-
-.download-card.yellow {
-  border-color: #fde68a;
+.download-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.1);
 }
 
 .download-card.green {
-  border-color: #bbf7d0;
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.download-card.yellow {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.download-card.red {
+  border-color: rgba(239, 68, 68, 0.28);
+  box-shadow: 0 0 0 1px rgba(229, 57, 53, 0.1), 0 0 0 4px rgba(229, 57, 53, 0.05);
 }
 
 .download-card.moved {
-  opacity: 0.92;
-  background: #f7fbf8;
+  opacity: 0.94;
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.96));
 }
 
 .download-card-head {
@@ -1059,6 +1081,7 @@ nav {
   font-weight: 800;
   color: var(--text);
   word-break: break-word;
+  line-height: 1.45;
 }
 
 .download-meta {
@@ -1076,32 +1099,67 @@ nav {
   gap: 6px;
   font-size: 10px;
   font-weight: 700;
-  padding: 3px 8px;
+  padding: 5px 9px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   margin-top: 8px;
+  backdrop-filter: blur(4px);
+  font-variant-numeric: tabular-nums;
+}
+
+.download-warning-banner {
+  display: none;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(229, 57, 53, 0.96), rgba(185, 28, 28, 0.96));
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  box-shadow: 0 12px 24px rgba(229, 57, 53, 0.22);
+}
+
+.download-card.dirty .download-warning-banner {
+  display: block;
 }
 
 .download-progress-wrap {
   margin-top: 10px;
+  margin-bottom: 14px;
 }
 
 .download-progress-track {
   width: 100%;
-  height: 10px;
+  height: 12px;
   border-radius: 999px;
-  background: #e7edf6;
+  background: #dfe7f3;
   overflow: hidden;
   border: 1px solid var(--border);
+  position: relative;
 }
 
 .download-progress-bar {
   height: 100%;
   width: 0%;
+  min-width: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), #6aa3ff);
+  background: linear-gradient(90deg, var(--accent-deep), #6aa3ff);
   transition: width 0.3s ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.download-card.green .download-progress-bar {
+  background: linear-gradient(90deg, #15803d, #4ade80);
+}
+
+.download-card.yellow .download-progress-bar {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+}
+
+.download-card.red .download-progress-bar {
+  background: linear-gradient(90deg, #dc2626, #fb7185);
 }
 
 .download-metrics-row {
@@ -1114,8 +1172,10 @@ nav {
 .download-metric {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px 12px;
+  backdrop-filter: blur(4px);
+  content-visibility: auto;
 }
 
 .download-metric-label {
@@ -1130,6 +1190,9 @@ nav {
   font-size: 13px;
   font-weight: 800;
   margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  word-break: break-word;
 }
 
 .download-carbon {
@@ -1142,59 +1205,53 @@ nav {
   color: var(--text);
   background: #f8fbff;
   border: 1px solid #dbe7ff;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  backdrop-filter: blur(4px);
 }
 
 .download-carbon strong {
   color: var(--accent-deep);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  word-break: break-word;
+}
+
+.download-carbon-ticker {
+  font-weight: 800;
+  color: var(--red);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  word-break: break-word;
 }
 
 .download-actions {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
   margin-top: 12px;
-}
-
-.download-action-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.download-actions .btn,
-.download-actions button,
-.download-actions input {
-  min-height: 40px;
-}
-
-.download-input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  padding: 10px 12px;
-  font-size: 13px;
-  color: var(--text);
 }
 
 .download-btn {
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 12px 12px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.18s ease;
+  min-height: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+.download-btn:hover {
+  transform: translateY(-1px);
 }
 
 .download-btn.pause {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
 }
 
 .download-btn.queue {
@@ -1204,48 +1261,9 @@ nav {
 }
 
 .download-btn.override {
-  background: #fff7ed;
-  color: #c2410c;
-  border-color: #fed7aa;
-}
-
-.download-btn:hover {
-  transform: translateY(-1px);
-}
-
-.download-card.dirty .download-btn.override {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #b91c1c;
-}
-
-.download-warning-banner {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 12px;
-  transform: translateY(-120%);
-  opacity: 0;
-  background: linear-gradient(180deg, rgba(229,57,53,0.96), rgba(185,28,28,0.96));
-  color: white;
-  padding: 10px 12px;
-  border-radius: 12px;
-  transition: all 0.28s ease;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.5;
-  box-shadow: 0 12px 24px rgba(229,57,53,0.22);
-}
-
-.download-card.dirty .download-warning-banner {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-.download-carbon-ticker {
-  font-weight: 800;
-  color: var(--red);
-  font-variant-numeric: tabular-nums;
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
 }
 
 .download-empty {
@@ -1255,10 +1273,12 @@ nav {
   padding: 28px;
   text-align: center;
   color: var(--muted);
+  line-height: 1.6;
 }
 
 .downloads-ledger {
   padding: 22px 24px;
+  content-visibility: auto;
 }
 
 .downloads-ledger-head {
@@ -1280,12 +1300,16 @@ nav {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px;
+  backdrop-filter: blur(4px);
+  content-visibility: auto;
 }
 
 .ledger-value {
   font-size: 20px;
   font-weight: 800;
   color: var(--green);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 .ledger-label {
@@ -1301,6 +1325,22 @@ nav {
   display: none;
 }
 
+/* Numeric stability */
+.downloads-stat-value,
+.download-metric-value,
+.download-carbon strong,
+.download-carbon-ticker,
+.ledger-value,
+.hero-intensity,
+.card-value,
+.stat-mini .val,
+.gauge-value,
+#downloads-last-updated {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Dark mode */
 body.dark {
   --bg: #0f1117;
   --surface: #1a1f2e;
@@ -1331,9 +1371,12 @@ body.dark .telemetry-list li {
   background: var(--bg);
 }
 
-body.dark .download-carbon {
-  background: #141924;
-  border-color: #26304b;
+body.dark .download-card {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+}
+
+body.dark .download-card.moved {
+  background: linear-gradient(180deg, rgba(22, 101, 52, 0.18), rgba(17, 24, 39, 0.9));
 }
 
 body.dark .download-card.yellow {
@@ -1352,10 +1395,30 @@ body.dark .download-progress-track {
   background: #22283a;
 }
 
+body.dark .download-progress-bar {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+body.dark .download-chip,
+body.dark .download-carbon,
+body.dark .download-metric,
+body.dark .downloads-stat,
+body.dark .ledger-stat {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+body.dark .download-carbon {
+  border-color: #26304b;
+}
+
+body.dark .download-chip {
+  background: rgba(96, 165, 250, 0.16);
+}
+
 body.dark .download-btn.pause {
-  background: #172554;
-  color: #bfdbfe;
-  border-color: #1e3a8a;
+  background: #3b1f0f;
+  color: #fdba74;
+  border-color: #7c2d12;
 }
 
 body.dark .download-btn.queue {
@@ -1365,9 +1428,9 @@ body.dark .download-btn.queue {
 }
 
 body.dark .download-btn.override {
-  background: #3b1f0f;
-  color: #fdba74;
-  border-color: #7c2d12;
+  background: #3b1111;
+  color: #fca5a5;
+  border-color: #7f1d1d;
 }
 
 body.dark .downloads-alert {
@@ -1382,6 +1445,11 @@ body.dark .download-empty {
   background: var(--bg);
 }
 
+body.dark .download-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+/* Responsive */
 @media (max-width: 1100px) {
   .grid-4 {
     grid-template-columns: repeat(2, 1fr);
@@ -1392,7 +1460,8 @@ body.dark .download-empty {
   .auditor-hub-grid,
   .tab-auditor-main-grid,
   .downloads-top-grid,
-  .downloads-board {
+  .downloads-board,
+  .downloads-board-single {
     grid-template-columns: 1fr;
   }
 
@@ -1431,7 +1500,8 @@ body.dark .download-empty {
   .grid-4,
   .downloads-stats-grid,
   .download-metrics-row,
-  .ledger-summary {
+  .ledger-summary,
+  .download-actions {
     grid-template-columns: 1fr;
   }
 
@@ -1445,7 +1515,34 @@ body.dark .download-empty {
     grid-template-columns: 1fr;
   }
 
-  .download-action-row {
-    grid-template-columns: 1fr;
+  .downloads-section,
+  .downloads-live-panel,
+  .downloads-ledger {
+    padding: 18px;
+  }
+
+  .download-card {
+    padding: 14px;
+  }
+
+  .download-title {
+    font-size: 13px;
+  }
+
+  .download-card-head,
+  .downloads-section-head,
+  .downloads-panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .download-metric-value,
+  .downloads-stat-value {
+    font-size: 18px;
+  }
+
+  .download-carbon {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

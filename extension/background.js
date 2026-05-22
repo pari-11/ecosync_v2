@@ -1,4 +1,7 @@
-const HEAVY_THRESHOLD_MINS = 1/6; // DEMO: 10 seconds | PROD: change to 10
+const API = 'http://localhost:8000';
+const HEAVY_THRESHOLD_MINS = 1 / 6;
+const DOWNLOAD_POLL_MS = 1000;
+const COMMAND_POLL_MS = 1000;
 
 let heavyTabs = [];
 let tabClassification = {};
@@ -7,18 +10,19 @@ let overlaySuppressed = false;
 let sessionCO2 = 0;
 
 const OVERLAY_COOLDOWN_MS = 30 * 60 * 1000;
-const heavyTabStartTimes = {};
 
 let downloadsState = {
   gridState: 'unknown',
-  active: [],
-  queued: [],
+  current: null,
+  deferred: [],
   ledger: [],
   savedCO2: 0,
-  overdrafts: 0
+  cancelledCount: 0
 };
 
 const downloadStore = new Map();
+let downloadsPollTimer = null;
+let commandPollTimer = null;
 
 function classifyTab(tab) {
   if (!tab || !tab.url) return;
@@ -38,7 +42,7 @@ function classifyTab(tab) {
     url.includes('instagram.com') || url.includes('facebook.com') ||
     url.includes('reddit.com') || url.includes('slack.com') ||
     url.includes('teams.microsoft.com') || url.includes('mail.google.com') ||
-    url.includes('discord.com') || url.includes('whatsapp.web')
+    url.includes('discord.com') || url.includes('web.whatsapp.com')
   ) {
     weight = 'dynamic';
   } else if (
@@ -55,6 +59,11 @@ function classifyTab(tab) {
     url: tab.url,
     weight,
     audible: isAudible,
+    active: !!tab.active,
+    background: !tab.active,
+    lastFocusedMinutes: 0,
+    inactiveMinutes: 0,
+    pollingRequests: weight === 'dynamic' ? 1 : 0,
     power: getPowerEstimate(weight)
   };
 
@@ -62,7 +71,7 @@ function classifyTab(tab) {
     if (!heavyTabs.includes(tab.id)) heavyTabs.push(tab.id);
     scheduleHeavyAlarm(tab.id);
   } else {
-    heavyTabs = heavyTabs.filter(id => id !== tab.id);
+    heavyTabs = heavyTabs.filter((id) => id !== tab.id);
     cancelHeavyAlarm(tab.id);
   }
 }
@@ -74,9 +83,7 @@ function getPowerEstimate(weight) {
 function scheduleHeavyAlarm(tabId) {
   const alarmName = `heavy-tab-${tabId}`;
   chrome.alarms.get(alarmName, (existing) => {
-    if (!existing) {
-      chrome.alarms.create(alarmName, { delayInMinutes: HEAVY_THRESHOLD_MINS });
-    }
+    if (!existing) chrome.alarms.create(alarmName, { delayInMinutes: HEAVY_THRESHOLD_MINS });
   });
 }
 
@@ -84,9 +91,16 @@ function cancelHeavyAlarm(tabId) {
   chrome.alarms.clear(`heavy-tab-${tabId}`);
 }
 
+function estimateZombieCO2(carbonIntensity) {
+  const allTabs = Object.values(tabClassification).filter(Boolean);
+  return allTabs
+    .filter((t) => t.background)
+    .reduce((sum, t) => sum + ((Number(t.power || 0) * Number(carbonIntensity || 0)) / 1000) / 4, 0);
+}
+
 function pushStateToBackend(carbonIntensity, co2Rate, totalPower, heavyCount) {
   const allTabs = Object.values(tabClassification).filter(Boolean);
-  fetch('http://localhost:8000/api/state', {
+  fetch(`${API}/api/state`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -96,6 +110,8 @@ function pushStateToBackend(carbonIntensity, co2Rate, totalPower, heavyCount) {
       carbonIntensity,
       co2Rate,
       sessionCO2,
+      pollingRequests60s: allTabs.filter((t) => t.weight === 'dynamic').length,
+      zombieCO2: estimateZombieCO2(carbonIntensity),
       updatedAt: new Date().toISOString()
     })
   }).catch(() => {});
@@ -107,162 +123,258 @@ function setGridStateFromIntensity(intensity) {
   return 'green';
 }
 
-function estimateCarbonForDownload(item) {
-  const sizeMB = Number(item.totalBytes || item.fileSizeBytes || 0) / (1024 * 1024);
-  const intensity = Number(item.gridIntensity || 0);
-  const factor = intensity / 1000;
-  return Math.max(0, sizeMB * factor * 12);
+function formatCarbon(value) {
+  return value >= 1000 ? `${(value / 1000).toFixed(2)}kg CO₂` : `${value.toFixed(2)}g CO₂`;
 }
 
-function formatCarbon(value) {
-  return value >= 1000 ? `${(value / 1000).toFixed(1)}kg CO₂` : `${value.toFixed(0)}g CO₂`;
+function estimateCarbonForDownload(item) {
+  const downloadedMB = Number(item.bytesReceived || 0) / (1024 * 1024);
+  const intensity = Number(item.gridIntensity || 0);
+  return Math.max(0, downloadedMB * (intensity / 1000) * 10);
+}
+
+function estimateTotalCarbonForDownload(item) {
+  const sizeMB = Number(item.totalBytes || 0) / (1024 * 1024);
+  const intensity = Number(item.gridIntensity || 0);
+  return Math.max(0, sizeMB * (intensity / 1000) * 10);
+}
+
+function getSpeedBps(item) {
+  const now = Date.now();
+  const elapsedSec = Math.max(1, (now - (item.startTime || now)) / 1000);
+  return Number(item.bytesReceived || 0) / elapsedSec;
+}
+
+function getEtaSeconds(item, speedBps) {
+  const remaining = Math.max(0, Number(item.totalBytes || 0) - Number(item.bytesReceived || 0));
+  if (!speedBps || speedBps <= 0) return 0;
+  return remaining / speedBps;
+}
+
+function speedLabel(item) {
+  const bps = getSpeedBps(item);
+  if (!bps) return '--';
+  return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
+function etaLabel(item) {
+  const eta = getEtaSeconds(item, getSpeedBps(item));
+  if (!eta || !isFinite(eta)) return '--';
+  return `${Math.ceil(eta)}s left`;
+}
+
+function fileSizeLabel(bytes) {
+  if (!bytes || bytes <= 0) return '--';
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function fetchGridCarbon() {
+  try {
+    const res = await fetch(`${API}/api/carbon/live/in`);
+    const data = await res.json();
+    return {
+      intensity: Number(data.intensity || 0),
+      gridState: data.trafficLight || setGridStateFromIntensity(Number(data.intensity || 0))
+    };
+  } catch (_) {
+    return { intensity: 0, gridState: downloadsState.gridState || 'unknown' };
+  }
+}
+
+function ensureDownloadRecord(item) {
+  const existing = downloadStore.get(item.id) || {};
+  const next = {
+    id: item.id,
+    fileName: existing.fileName || item.filename?.split(/[\\/]/).pop() || item.filename || item.finalUrl || 'Unknown File',
+    filename: item.filename || existing.filename || '',
+    finalUrl: item.finalUrl || existing.finalUrl || '',
+    totalBytes: typeof item.totalBytes === 'number' ? item.totalBytes : (existing.totalBytes || 0),
+    bytesReceived: typeof item.bytesReceived === 'number' ? item.bytesReceived : (existing.bytesReceived || 0),
+    state: item.state || existing.state || 'in_progress',
+    paused: typeof item.paused === 'boolean' ? item.paused : !!existing.paused,
+    exists: typeof item.exists === 'boolean' ? item.exists : existing.exists,
+    canResume: typeof item.canResume === 'boolean' ? item.canResume : existing.canResume,
+    startTime: existing.startTime || Date.now(),
+    gridIntensity: existing.gridIntensity || 0,
+    gridState: existing.gridState || downloadsState.gridState || 'unknown',
+    liveCarbon: existing.liveCarbon || 0,
+    deferred: !!existing.deferred,
+    lastUpdated: Date.now()
+  };
+
+  downloadStore.set(item.id, next);
+  return next;
+}
+
+function buildDownloadRow(item) {
+  const progress = item.totalBytes > 0 ? (item.bytesReceived / item.totalBytes) * 100 : 0;
+  return {
+    id: item.id,
+    fileName: item.fileName || 'Unknown File',
+    fileSizeLabel: fileSizeLabel(item.totalBytes),
+    speedLabel: speedLabel(item),
+    etaLabel: etaLabel(item),
+    progress,
+    carbonTicker: formatCarbon(item.liveCarbon || 0),
+    carbonCost: estimateTotalCarbonForDownload(item),
+    currentCO2: Number(item.liveCarbon || 0),
+    gridState: item.gridState || downloadsState.gridState || 'unknown',
+    status: item.deferred ? 'deferred' : item.paused ? 'paused' : item.state === 'complete' ? 'complete' : 'downloading'
+  };
+}
+
+async function refreshDownloadStoreFromChrome() {
+  return new Promise((resolve) => {
+    chrome.downloads.search({}, async (items) => {
+      const { intensity, gridState } = await fetchGridCarbon();
+      downloadsState.gridState = gridState;
+
+      for (const item of items) {
+        if (!item || typeof item.id !== 'number') continue;
+
+        const rec = ensureDownloadRecord(item);
+        rec.fileName = item.filename?.split(/[\\/]/).pop() || rec.fileName;
+        rec.filename = item.filename || rec.filename;
+        rec.finalUrl = item.finalUrl || rec.finalUrl;
+        rec.totalBytes = typeof item.totalBytes === 'number' ? item.totalBytes : rec.totalBytes;
+        rec.bytesReceived = typeof item.bytesReceived === 'number' ? item.bytesReceived : rec.bytesReceived;
+        rec.state = item.state || rec.state;
+        rec.paused = !!item.paused;
+        rec.exists = item.exists;
+        rec.canResume = item.canResume;
+        rec.gridIntensity = intensity;
+        rec.gridState = gridState;
+        rec.liveCarbon = estimateCarbonForDownload(rec);
+        rec.lastUpdated = Date.now();
+
+        downloadStore.set(item.id, rec);
+      }
+
+      syncDownloadState();
+      resolve();
+    });
+  });
+}
+
+function getCurrentDownloadingItem() {
+  const candidates = [...downloadStore.values()].filter((item) =>
+    item &&
+    item.state === 'in_progress' &&
+    !item.paused &&
+    !item.deferred
+  );
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+  return candidates[0];
+}
+
+function getDeferredItems() {
+  return [...downloadStore.values()]
+    .filter((item) => item && item.deferred)
+    .sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0))
+    .map(buildDownloadRow);
+}
+
+function hasTrackedActiveDownloads() {
+  return [...downloadStore.values()].some((item) =>
+    item &&
+    (
+      (item.state === 'in_progress' && !item.paused && !item.deferred) ||
+      item.deferred
+    )
+  );
+}
+
+function ensureDownloadsPolling() {
+  if (downloadsPollTimer) return;
+  downloadsPollTimer = setInterval(async () => {
+    await refreshDownloadStoreFromChrome();
+    if (!hasTrackedActiveDownloads()) {
+      clearInterval(downloadsPollTimer);
+      downloadsPollTimer = null;
+    }
+  }, DOWNLOAD_POLL_MS);
 }
 
 function syncDownloadState() {
-  const active = [];
-  const queued = [];
-  const ledger = downloadsState.ledger || [];
-
-  for (const item of downloadStore.values()) {
-    const progress = item.totalBytes > 0 ? (item.bytesReceived / item.totalBytes) * 100 : 0;
-    const speedBps = item.estimatedEndTime && item.startTime ? (item.bytesReceived / Math.max(1, (Date.now() - item.startTime))) * 1000 : 0;
-    const speedMB = speedBps / (1024 * 1024);
-    const etaSecs = item.totalBytes > item.bytesReceived && speedBps > 0 ? (item.totalBytes - item.bytesReceived) / speedBps : 0;
-    const gridState = item.gridState || downloadsState.gridState || 'unknown';
-    const carbonCost = estimateCarbonForDownload(item);
-    const paused = item.state === 'interrupted' || item.paused;
-
-    const row = {
-      id: item.id,
-      fileName: item.filename || item.fileName || 'Unknown File',
-      fileSizeLabel: item.totalBytes ? `${(item.totalBytes / (1024 * 1024)).toFixed(1)} MB` : '--',
-      speedLabel: speedBps > 0 ? `${speedMB.toFixed(1)} MB/s` : '--',
-      etaLabel: etaSecs > 0 ? `${Math.ceil(etaSecs)}s left` : '--',
-      progress: progress,
-      carbonTicker: `${Math.max(0, item.liveCarbon || 0).toFixed(1)}g CO₂`,
-      carbonCost,
-      gridState,
-      status: paused ? 'paused' : item.state === 'complete' ? 'complete' : 'downloading',
-      deadlineTime: item.deadlineTime || ''
-    };
-
-    if (paused || item.queueMode) queued.push(row);
-    else if (item.state === 'in_progress' || item.state === 'complete' || item.state === 'interrupted') active.push(row);
-  }
-
-  downloadsState.active = active.filter((x) => x.status !== 'complete');
-  downloadsState.queued = queued;
-  downloadsState.ledger = ledger;
-  chrome.storage.session.set({ ecosyncDownloadsState: downloadsState }).catch(() => {});
+  const current = getCurrentDownloadingItem();
+  downloadsState.current = current ? buildDownloadRow(current) : null;
+  downloadsState.deferred = getDeferredItems();
+  chrome.storage.local.set({ ecosyncDownloadsState: downloadsState }).catch(() => {});
   pushDownloadStateToBackend();
 }
 
 function pushDownloadStateToBackend() {
-  fetch('http://localhost:8000/api/downloads/state', {
+  fetch(`${API}/api/downloads/state`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(downloadsState)
   }).catch(() => {});
 }
 
-chrome.downloads.onCreated.addListener((item) => {
-  downloadStore.set(item.id, {
-    id: item.id,
-    fileName: item.filename || 'Unknown File',
-    filename: item.filename || 'Unknown File',
-    totalBytes: item.totalBytes || 0,
-    bytesReceived: 0,
-    state: item.state || 'in_progress',
-    paused: false,
-    startTime: Date.now(),
-    gridIntensity: 0,
-    liveCarbon: 0,
-    gridState: downloadsState.gridState,
-    queueMode: false,
-    deadlineTime: ''
-  });
-  syncDownloadState();
-});
+async function executeDownloadAction(actionType, id) {
+  const numericId = Number(id);
+  const item = downloadStore.get(numericId);
+  if (!item) return { ok: false, error: 'Download not found' };
 
-chrome.downloads.onChanged.addListener((delta) => {
-  const item = downloadStore.get(delta.id) || { id: delta.id, startTime: Date.now() };
-
-  if (delta.filename && delta.filename.current) {
-    item.filename = delta.filename.current;
-    item.fileName = delta.filename.current.split(/[\\/]/).pop();
-  }
-  if (delta.totalBytes && typeof delta.totalBytes.current === 'number') item.totalBytes = delta.totalBytes.current;
-  if (delta.bytesReceived && typeof delta.bytesReceived.current === 'number') item.bytesReceived = delta.bytesReceived.current;
-  if (delta.paused && typeof delta.paused.current === 'boolean') item.paused = delta.paused.current;
-  if (delta.state && delta.state.current) item.state = delta.state.current;
-  if (delta.exists && typeof delta.exists.current === 'boolean') item.exists = delta.exists.current;
-  if (delta.canResume && typeof delta.canResume.current === 'boolean') item.canResume = delta.canResume.current;
-  if (delta.error && delta.error.current) item.error = delta.error.current;
-
-  item.gridIntensity = item.gridIntensity || 0;
-  item.liveCarbon = (item.bytesReceived / (1024 * 1024)) * ((item.gridIntensity || 0) / 1000) * 10;
-  downloadStore.set(delta.id, item);
-  syncDownloadState();
-});
-
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  suggest();
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' || changeInfo.audible !== undefined) {
-    classifyTab(tab);
-  }
-});
-
-chrome.tabs.onRemoved.addListener((tabId) => {
-  delete tabClassification[tabId];
-  heavyTabs = heavyTabs.filter(id => id !== tabId);
-  cancelHeavyAlarm(tabId);
-});
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getHeavyTabs') {
-    sendResponse({
-      heavyCount: heavyTabs.length,
-      heavyTabs: heavyTabs.map(id => tabClassification[id]).filter(Boolean),
-      allTabs: Object.values(tabClassification)
-    });
-  }
-  if (request.action === 'suppressOverlay') {
-    overlaySuppressed = true;
-    sendResponse({ ok: true });
-  }
-  if (request.action === 'getSessionCO2') {
-    sendResponse({ total: sessionCO2 });
-  }
-
-  if (request.action === 'downloads-action') {
-    handleDownloadAction(request).then((result) => sendResponse(result));
-    return true;
-  }
-});
-
-async function handleDownloadAction(request) {
-  const id = Number(request.id);
-  const item = downloadStore.get(id);
-  if (!item) return { ok: false };
-
-  if (request.actionType === 'pause') {
+  if (actionType === 'pause') {
     try {
-      await chrome.downloads.pause(id);
+      await chrome.downloads.pause(numericId);
       item.paused = true;
-      item.queueMode = true;
-      item.gridState = downloadsState.gridState;
-      downloadsState.savedCO2 += estimateCarbonForDownload(item) * 0.3;
-      downloadsState.queued = downloadsState.queued || [];
-      downloadsState.ledger = downloadsState.ledger || [];
+      item.deferred = false;
       downloadsState.ledger.unshift({
         date: new Date().toLocaleString(),
         fileName: item.fileName,
-        action: 'Paused & Deferred',
-        carbon: `Saved ${formatCarbon(estimateCarbonForDownload(item) * 0.3)}`
+        action: 'Paused',
+        carbon: formatCarbon(item.liveCarbon || 0)
       });
+      downloadStore.set(numericId, item);
+      syncDownloadState();
+      ensureDownloadsPolling();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
+  if (actionType === 'defer') {
+    try {
+      await chrome.downloads.pause(numericId);
+      item.paused = true;
+      item.deferred = true;
+      const saved = Math.max(0, estimateTotalCarbonForDownload(item) - (item.liveCarbon || 0));
+      downloadsState.savedCO2 += saved;
+      downloadsState.ledger.unshift({
+        date: new Date().toLocaleString(),
+        fileName: item.fileName,
+        action: 'Deferred to Green Window',
+        carbon: `Saved ${formatCarbon(saved)}`
+      });
+      downloadStore.set(numericId, item);
+      syncDownloadState();
+      ensureDownloadsPolling();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
+  if (actionType === 'cancel') {
+    try {
+      await chrome.downloads.cancel(numericId);
+      item.state = 'cancelled';
+      item.paused = false;
+      item.deferred = false;
+      downloadsState.cancelledCount = (downloadsState.cancelledCount || 0) + 1;
+      downloadsState.ledger.unshift({
+        date: new Date().toLocaleString(),
+        fileName: item.fileName,
+        action: 'Cancelled',
+        carbon: formatCarbon(item.liveCarbon || 0)
+      });
+      downloadStore.set(numericId, item);
       syncDownloadState();
       return { ok: true };
     } catch (e) {
@@ -270,56 +382,116 @@ async function handleDownloadAction(request) {
     }
   }
 
-  if (request.actionType === 'deadline') {
-    item.paused = true;
-    item.queueMode = true;
-    item.deadlineTime = request.deadline || '';
-    try {
-      await chrome.downloads.pause(id);
-    } catch (_) {}
-    downloadsState.ledger.unshift({
-      date: new Date().toLocaleString(),
-      fileName: item.fileName,
-      action: `Queued for ${request.deadline || '--'}`,
-      carbon: `Saved ${formatCarbon(estimateCarbonForDownload(item) * 0.25)}`
-    });
-    syncDownloadState();
-    return { ok: true };
-  }
-
-  if (request.actionType === 'override') {
-    try {
-      await chrome.downloads.resume(id);
-      item.paused = false;
-      item.queueMode = false;
-      downloadsState.overdrafts = (downloadsState.overdrafts || 0) + 1;
-      const penalty = estimateCarbonForDownload(item);
-      downloadsState.ledger.unshift({
-        date: new Date().toLocaleString(),
-        fileName: item.fileName,
-        action: 'Carbon-Taxed Override',
-        carbon: `+ ${formatCarbon(penalty)}`
-      });
-      syncDownloadState();
-      return { ok: true, penalty };
-    } catch (e) {
-      return { ok: false, error: String(e?.message || e) };
-    }
-  }
-
-  return { ok: false };
+  return { ok: false, error: 'Unknown action' };
 }
 
-chrome.tabs.query({}, (tabs) => {
-  tabs.forEach(tab => classifyTab(tab));
+async function pollBackendDownloadCommands() {
+  try {
+    const res = await fetch(`${API}/api/downloads/commands`);
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (!data || !data.command) return;
+
+    const { action, download_id } = data.command;
+    if (!action || typeof download_id === 'undefined' || download_id === null) return;
+
+    await executeDownloadAction(action, download_id);
+  } catch (_) {}
+}
+
+function ensureCommandPolling() {
+  if (commandPollTimer) return;
+  commandPollTimer = setInterval(() => {
+    pollBackendDownloadCommands();
+  }, COMMAND_POLL_MS);
+}
+
+chrome.downloads.onCreated.addListener(async (item) => {
+  ensureDownloadRecord(item);
+  await refreshDownloadStoreFromChrome();
+  ensureDownloadsPolling();
 });
 
-chrome.alarms.create('ecosync-state-push', { periodInMinutes: 1/6 });
+chrome.downloads.onChanged.addListener(async (delta) => {
+  const current = downloadStore.get(delta.id) || { id: delta.id, startTime: Date.now() };
+
+  if (delta.filename?.current) {
+    current.filename = delta.filename.current;
+    current.fileName = delta.filename.current.split(/[\\/]/).pop();
+  }
+  if (typeof delta.totalBytes?.current === 'number') current.totalBytes = delta.totalBytes.current;
+  if (typeof delta.bytesReceived?.current === 'number') current.bytesReceived = delta.bytesReceived.current;
+  if (typeof delta.paused?.current === 'boolean') current.paused = delta.paused.current;
+  if (delta.state?.current) current.state = delta.state.current;
+  if (typeof delta.exists?.current === 'boolean') current.exists = delta.exists.current;
+  if (typeof delta.canResume?.current === 'boolean') current.canResume = delta.canResume.current;
+
+  downloadStore.set(delta.id, current);
+
+  await refreshDownloadStoreFromChrome();
+
+  if (current.state === 'in_progress' || current.paused || current.deferred) {
+    ensureDownloadsPolling();
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' || changeInfo.audible !== undefined) classifyTab(tab);
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  Object.values(tabClassification).forEach((tab) => {
+    if (!tab) return;
+    tab.active = tab.id === tabId;
+    tab.background = tab.id !== tabId;
+  });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  delete tabClassification[tabId];
+  heavyTabs = heavyTabs.filter((id) => id !== tabId);
+  cancelHeavyAlarm(tabId);
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'getHeavyTabs') {
+    sendResponse({
+      heavyCount: heavyTabs.length,
+      heavyTabs: heavyTabs.map((id) => tabClassification[id]).filter(Boolean),
+      allTabs: Object.values(tabClassification)
+    });
+  }
+
+  if (request.action === 'suppressOverlay') {
+    overlaySuppressed = true;
+    sendResponse({ ok: true });
+  }
+
+  if (request.action === 'getSessionCO2') {
+    sendResponse({ total: sessionCO2 });
+  }
+
+  if (request.action === 'downloads-action') {
+    executeDownloadAction(request.actionType, request.id).then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (request.action === 'getDownloadsState') {
+    sendResponse(downloadsState);
+  }
+});
+
+chrome.tabs.query({}, (tabs) => {
+  tabs.forEach((tab) => classifyTab(tab));
+});
+
+chrome.alarms.create('ecosync-state-push', { periodInMinutes: 1 / 6 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (!alarm.name.startsWith('heavy-tab-')) return;
 
-  const tabId = parseInt(alarm.name.replace('heavy-tab-', ''));
+  const tabId = parseInt(alarm.name.replace('heavy-tab-', ''), 10);
 
   chrome.tabs.get(tabId, async (tab) => {
     if (chrome.runtime.lastError || !tab) return;
@@ -328,15 +500,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (!tabData || (tabData.weight !== 'heavy' && tabData.weight !== 'heavy-video')) return;
 
     const allTabs = Object.values(tabClassification).filter(Boolean);
-    const heavyCount = allTabs.filter(t => t.weight === 'heavy' || t.weight === 'heavy-video').length;
+    const heavyCount = allTabs.filter((t) => t.weight === 'heavy' || t.weight === 'heavy-video').length;
     const totalPower = allTabs.reduce((s, t) => s + t.power, 0).toFixed(1);
 
     let carbonIntensity = 0;
     let co2Rate = 0;
     try {
-      const res = await fetch('http://localhost:8000/api/carbon/live/in');
+      const res = await fetch(`${API}/api/carbon/live/in`);
       const data = await res.json();
-      carbonIntensity = data.intensity;
+      carbonIntensity = Number(data.intensity || 0);
       co2Rate = ((parseFloat(totalPower) * carbonIntensity) / 1000).toFixed(1);
       sessionCO2 += parseFloat(co2Rate) * (10 / 3600);
     } catch (_) {}
@@ -344,7 +516,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     pushStateToBackend(carbonIntensity, co2Rate, totalPower, heavyCount);
 
     const stats = { heavyCount, totalPower, carbonIntensity, co2Rate };
-
     const now = Date.now();
     const cooldownPassed = overlayLastShown === null || (now - overlayLastShown) > OVERLAY_COOLDOWN_MS;
 
@@ -359,7 +530,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (heavyCount > 3) {
       chrome.notifications.create(`alert-${tabId}-${Date.now()}`, {
         type: 'basic',
-        iconUrl: 'globe.png',
+        iconUrl: 'icons/globe.png',
         title: '🌍 EcoSync — Heavy Tab Alert',
         message: `${heavyCount} heavy tabs open • ${totalPower}W • ${co2Rate}g CO₂/hr`,
         priority: 2
@@ -439,38 +610,39 @@ function injectOverlay(tabId, stats) {
       }, 6000);
     },
     args: [stats]
-  }).catch(err => console.warn('[EcoSync] Overlay inject failed:', err));
+  }).catch((err) => console.warn('[EcoSync] Overlay inject failed:', err));
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== 'ecosync-state-push') return;
 
   const allTabs = Object.values(tabClassification).filter(Boolean);
-  const heavyCount = allTabs.filter(t => t.weight === 'heavy' || t.weight === 'heavy-video').length;
+  const heavyCount = allTabs.filter((t) => t.weight === 'heavy' || t.weight === 'heavy-video').length;
   const totalPower = allTabs.reduce((s, t) => s + t.power, 0).toFixed(1);
 
   let carbonIntensity = 0;
   let co2Rate = 0;
   try {
-    const res = await fetch('http://localhost:8000/api/carbon/live/in');
+    const res = await fetch(`${API}/api/carbon/live/in`);
     const data = await res.json();
-    carbonIntensity = data.intensity || 0;
+    carbonIntensity = Number(data.intensity || 0);
     co2Rate = ((parseFloat(totalPower) * carbonIntensity) / 1000).toFixed(1);
     sessionCO2 += parseFloat(co2Rate) * (10 / 3600);
+    downloadsState.gridState = data.trafficLight || setGridStateFromIntensity(carbonIntensity);
   } catch (_) {}
 
   pushStateToBackend(carbonIntensity, co2Rate, totalPower, heavyCount);
-  syncDownloadState();
+  await refreshDownloadStoreFromChrome();
 });
 
-chrome.downloads.onChanged.addListener(() => {
-  syncDownloadState();
+chrome.runtime.onInstalled.addListener(() => {
+  refreshDownloadStoreFromChrome();
+  ensureCommandPolling();
 });
 
-chrome.downloads.onCreated.addListener(() => {
-  syncDownloadState();
+chrome.runtime.onStartup.addListener(() => {
+  refreshDownloadStoreFromChrome();
+  ensureCommandPolling();
 });
 
-chrome.runtime.onInstalled?.addListener(() => {
-  syncDownloadState();
-});
+ensureCommandPolling();

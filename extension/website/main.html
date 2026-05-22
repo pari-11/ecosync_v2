@@ -13,7 +13,7 @@
 <body>
   <aside id="sidebar">
     <div class="sidebar-logo">
-      <img src="../icons/logo.png" alt="EcoSync logo" />
+      <img src="/icons/globe.png" alt="EcoSync logo" />
       <div class="sidebar-logo-text">
         EcoSync
         <span>Carbon-Aware Platform</span>
@@ -113,14 +113,14 @@
           <div class="section-card-header">
             <div>
               <div class="section-card-title">⬇️ Downloads Monitor <span class="pill pill-yellow" style="font-size:10px;vertical-align:middle;margin-left:6px;">Live</span></div>
-              <div class="section-card-desc">Pause, defer, or override browser downloads based on the current grid state.</div>
+              <div class="section-card-desc">Track the current browser download, its live carbon cost, and decide whether to defer, pause, or cancel.</div>
             </div>
             <div class="section-card-icon" style="background:#f0fdf4;color:var(--green);">⬇️</div>
           </div>
           <div class="section-card-stats">
-            <div class="sc-stat"><div class="v" id="home-download-active">--</div><div class="l">Active</div></div>
-            <div class="sc-stat"><div class="v" id="home-download-queue">--</div><div class="l">Queued</div></div>
-            <div class="sc-stat"><div class="v" id="home-download-saved">--</div><div class="l">CO₂ Saved</div></div>
+            <div class="sc-stat"><div class="v" id="home-download-active">0</div><div class="l">Active</div></div>
+            <div class="sc-stat"><div class="v" id="home-download-queue">0</div><div class="l">Deferred</div></div>
+            <div class="sc-stat"><div class="v" id="home-download-saved">0g</div><div class="l">CO₂ Saved</div></div>
           </div>
         </div>
 
@@ -128,7 +128,7 @@
           <div class="section-card-header">
             <div>
               <div class="section-card-title">🗓️ Eco-Scheduler <span class="pill pill-yellow" style="font-size:10px;vertical-align:middle;margin-left:6px;">Soon</span></div>
-              <div class="section-card-desc">Schedule energy-intensive tasks to low-carbon grid windows using Calendar integration.</div>
+              <div class="section-card-desc">Schedule heavy tasks to low-carbon grid windows using Calendar integration.</div>
             </div>
             <div class="section-card-icon" style="background:#fef2f2;color:var(--red);">🗓️</div>
           </div>
@@ -217,7 +217,7 @@
             <div class="auditor-hub-grid">
               <div class="power-gauge-wrap">
                 <div class="power-gauge">
-                  <svg viewBox="0 0 220 140" class="gauge-svg">
+                  <svg viewBox="0 0 220 140" class="gauge-svg" aria-hidden="true">
                     <path d="M20 120 A90 90 0 0 1 200 120" class="gauge-track"></path>
                     <path d="M20 120 A90 90 0 0 1 200 120" class="gauge-progress" id="gauge-progress"></path>
                   </svg>
@@ -328,7 +328,14 @@
     <section class="page" id="page-downloads">
       <div class="page-header">
         <h1>⬇️ Downloads Monitor</h1>
-        <p>Real-time browser download control with carbon-aware scheduling.</p>
+        <p>Track the current download, its live CO₂ cost, and decide whether to defer it, pause it, or cancel it.</p>
+      </div>
+
+      <div class="refresh-bar">
+        <span id="downloads-last-updated">Live download state · --</span>
+        <button class="refresh-btn" type="button" onclick="loadDownloads()">
+          Refresh Downloads
+        </button>
       </div>
 
       <div class="downloads-shell">
@@ -336,8 +343,8 @@
           <div class="downloads-live-panel card">
             <div class="downloads-panel-head">
               <div>
-                <div class="card-title">Live Process Feed</div>
-                <div class="card-sub">Active downloads anywhere in Chrome, updated in real time.</div>
+                <div class="card-title">Current Download Status</div>
+                <div class="card-sub">Only the live download in progress is shown here.</div>
               </div>
               <div class="downloads-status-pill" id="downloads-grid-state">Grid: --</div>
             </div>
@@ -345,42 +352,47 @@
             <div class="downloads-stats-grid">
               <div class="downloads-stat">
                 <div class="downloads-stat-value" id="downloads-active-count">0</div>
-                <div class="downloads-stat-label">Active Downloads</div>
+                <div class="downloads-stat-label">Live Downloads</div>
               </div>
               <div class="downloads-stat">
                 <div class="downloads-stat-value" id="downloads-queued-count">0</div>
-                <div class="downloads-stat-label">Pending Eco-Tasks</div>
+                <div class="downloads-stat-label">Deferred</div>
               </div>
               <div class="downloads-stat">
                 <div class="downloads-stat-value" id="downloads-saved-total">0g</div>
-                <div class="downloads-stat-label">Emissions Diverted</div>
+                <div class="downloads-stat-label">CO₂ Saved</div>
               </div>
               <div class="downloads-stat">
                 <div class="downloads-stat-value" id="downloads-override-total">0</div>
-                <div class="downloads-stat-label">Overdrafts</div>
+                <div class="downloads-stat-label">Cancelled</div>
               </div>
             </div>
           </div>
 
-          <div class="downloads-alert card" id="downloads-dirty-alert">
-            <div class="downloads-alert-title">Dirty Grid Interception</div>
-            <p>The electricity grid is currently under heavy stress. Running this download right now will generate avoidable carbon emissions.</p>
+          <div class="downloads-alert card" id="downloads-dirty-alert" style="display:none;">
+            <div class="downloads-alert-title">Dirty Grid Warning</div>
+            <p>The grid is currently carbon-heavy, so continuing this download now may create avoidable emissions.</p>
           </div>
         </div>
 
-        <div class="downloads-board">
+        <div class="downloads-board downloads-board-single">
           <div class="downloads-section">
             <div class="downloads-section-head">
-              <h2>Active Downloads</h2>
+              <h2>Current Live Download</h2>
               <span class="pill pill-blue" id="downloads-live-sync">Syncing</span>
             </div>
-            <div id="downloads-active-list" class="downloads-list"></div>
+
+            <div
+              id="downloads-active-list"
+              class="downloads-list"
+              aria-live="polite"
+            ></div>
           </div>
 
           <div class="downloads-section">
             <div class="downloads-section-head">
-              <h2>Pending Eco-Tasks Queue</h2>
-              <span class="pill pill-green">Queued</span>
+              <h2>Deferred Downloads</h2>
+              <span class="pill pill-green">Deferred</span>
             </div>
             <div id="downloads-queue-list" class="downloads-list"></div>
           </div>
@@ -389,19 +401,19 @@
         <div class="downloads-ledger card">
           <div class="downloads-ledger-head">
             <div>
-              <div class="card-title">Historical Balance Ledger</div>
-              <div class="card-sub">Long-term carbon impact of pause, schedule, and override decisions.</div>
+              <div class="card-title">Action Ledger</div>
+              <div class="card-sub">History of defer, pause, and cancel decisions for downloads.</div>
             </div>
           </div>
 
           <div class="ledger-summary">
             <div class="ledger-stat">
               <div class="ledger-value" id="ledger-saved">0g CO₂ Prevented</div>
-              <div class="ledger-label">Emissions Diverted</div>
+              <div class="ledger-label">Emissions Avoided</div>
             </div>
             <div class="ledger-stat">
               <div class="ledger-value" id="ledger-overdrafts">0</div>
-              <div class="ledger-label">Carbon Overdrafts</div>
+              <div class="ledger-label">Cancelled Downloads</div>
             </div>
           </div>
 
