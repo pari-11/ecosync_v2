@@ -26,7 +26,7 @@
       <div class="nav-item" data-page="dashboard"><span class="icon">📡</span> Dashboard</div>
       <div class="nav-item" data-page="tab-auditor"><span class="icon">🗂️</span> Tab Auditor</div>
       <div class="nav-item" data-page="downloads"><span class="icon">⬇️</span> Downloads Monitor<span class="nav-badge">Live</span></div>
-      <div class="nav-item" data-page="eco-scheduler"><span class="icon">🗓️</span> Eco-Scheduler<span class="nav-badge">Soon</span></div>
+      <div class="nav-item" data-page="eco-scheduler"><span class="icon">🗓️</span> Eco-Scheduler<span class="nav-badge">New</span></div>
     </nav>
 
     <div class="sidebar-footer">
@@ -54,6 +54,7 @@
   </aside>
 
   <main id="main">
+    <!-- HOME -->
     <section class="page active" id="page-home">
       <div class="page-header">
         <h1>EcoSync</h1>
@@ -124,23 +125,24 @@
           </div>
         </div>
 
-        <div class="section-card" onclick="navigate('eco-scheduler')" style="opacity:0.75;">
+        <div class="section-card" onclick="navigate('eco-scheduler')" style="opacity:0.98;">
           <div class="section-card-header">
             <div>
-              <div class="section-card-title">🗓️ Eco-Scheduler <span class="pill pill-yellow" style="font-size:10px;vertical-align:middle;margin-left:6px;">Soon</span></div>
-              <div class="section-card-desc">Schedule heavy tasks to low-carbon grid windows using Calendar integration.</div>
+              <div class="section-card-title">🗓️ Eco-Scheduler <span class="pill pill-blue" style="font-size:10px;vertical-align:middle;margin-left:6px;">Smart</span></div>
+              <div class="section-card-desc">Card-based task board that recommends green windows for online work.</div>
             </div>
             <div class="section-card-icon" style="background:#fef2f2;color:var(--red);">🗓️</div>
           </div>
           <div class="section-card-stats">
-            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">Scheduled</div></div>
-            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">Rescheduled</div></div>
-            <div class="sc-stat"><div class="v" style="color:var(--muted);">--</div><div class="l">CO₂ Saved</div></div>
+            <div class="sc-stat"><div class="v" style="color:var(--muted);" id="home-eco-pending">--</div><div class="l">Pending</div></div>
+            <div class="sc-stat"><div class="v" style="color:var(--muted);" id="home-eco-completed">--</div><div class="l">Completed</div></div>
+            <div class="sc-stat"><div class="v" style="color:var(--muted);" id="home-eco-online">--</div><div class="l">Online Tasks</div></div>
           </div>
         </div>
       </div>
     </section>
 
+    <!-- DASHBOARD -->
     <section class="page" id="page-dashboard">
       <div class="page-header">
         <h1>📡 Dashboard</h1>
@@ -197,6 +199,7 @@
       </div>
     </section>
 
+    <!-- TAB AUDITOR -->
     <section class="page" id="page-tab-auditor">
       <div class="page-header">
         <h1>🗂️ Tab Auditor</h1>
@@ -325,6 +328,7 @@
       </div>
     </section>
 
+    <!-- DOWNLOADS -->
     <section class="page" id="page-downloads">
       <div class="page-header">
         <h1>⬇️ Downloads Monitor</h1>
@@ -436,18 +440,111 @@
       </div>
     </section>
 
+    <!-- ECO SCHEDULER -->
     <section class="page" id="page-eco-scheduler">
       <div class="page-header">
         <h1>🗓️ Eco-Scheduler</h1>
-        <p>Schedule heavy tasks to green grid windows.</p>
+        <p>Card-based workspace that nudges you toward greener execution windows.</p>
       </div>
-      <div class="coming-soon">
-        <div class="cs-icon">🗓️</div>
-        <h3>Eco-Scheduler — Coming Soon</h3>
-        <p>This section will integrate with Google Calendar to automatically reschedule energy-intensive tasks — backups, renders, uploads — to low-carbon grid windows overnight.</p>
+
+      <div class="eco-toolbar">
+        <div class="eco-toolbar-left">
+          <button class="refresh-btn" type="button" onclick="clearAllTasks()">
+            🧹 Clear All Tasks
+          </button>
+        </div>
+        <button class="eco-create-btn" type="button" onclick="openTaskModal()">
+          + Create New Task
+        </button>
+      </div>
+
+      <div class="eco-board">
+        <div class="eco-column">
+          <div class="eco-column-head">
+            <h2>Pending Tasks</h2>
+            <span class="pill pill-blue" id="eco-pending-count">0</span>
+          </div>
+          <div class="eco-column-body" id="eco-col-pending"></div>
+        </div>
+
+        <div class="eco-column">
+          <div class="eco-column-head">
+            <h2>Eco-Optimized Queue</h2>
+            <span class="pill pill-green" id="eco-queue-count">0</span>
+          </div>
+          <div class="eco-column-body" id="eco-col-queue"></div>
+        </div>
+
+        <div class="eco-column">
+          <div class="eco-column-head">
+            <h2>Completed · Carbon Log</h2>
+            <span class="pill pill-yellow" id="eco-completed-count">0</span>
+          </div>
+          <div class="eco-column-body" id="eco-col-completed"></div>
+        </div>
       </div>
     </section>
   </main>
+
+  <!-- Eco Task Modal -->
+  <div class="eco-modal-backdrop" id="eco-modal" style="display:none;">
+    <div class="eco-modal">
+      <div class="eco-modal-head">
+        <h3>Create New Task</h3>
+        <button class="eco-modal-close" type="button" onclick="closeTaskModal()">✕</button>
+      </div>
+
+      <form id="eco-task-form" onsubmit="submitTaskForm(event)">
+        <div class="eco-field">
+          <label for="eco-title">Task Title</label>
+          <input id="eco-title" name="title" type="text" required placeholder="Render 4K Project Video" />
+        </div>
+
+        <div class="eco-field">
+          <label for="eco-description">Description</label>
+          <textarea id="eco-description" name="description" rows="3" placeholder="Export final assets, upload to drive, send link"></textarea>
+        </div>
+
+        <div class="eco-field-grid">
+          <div class="eco-field">
+            <label for="eco-priority">Priority Tier</label>
+            <select id="eco-priority" name="priority" required>
+              <option value="high">🔴 High Priority</option>
+              <option value="medium">🟡 Medium Priority</option>
+              <option value="low">🟢 Low Priority</option>
+            </select>
+          </div>
+
+          <div class="eco-field">
+            <label for="eco-duration">Estimated Duration (mins)</label>
+            <input id="eco-duration" name="estimated_minutes" type="number" min="1" placeholder="e.g., 45" />
+          </div>
+        </div>
+
+        <div class="eco-field">
+          <label>Tags</label>
+          <div class="eco-tag-pills-row">
+            <button type="button" class="eco-tag-pill" data-tag="online">⚡ Online</button>
+            <button type="button" class="eco-tag-pill" data-tag="offline">🍃 Offline</button>
+            <button type="button" class="eco-tag-pill" data-tag="college">🎓 College</button>
+            <button type="button" class="eco-tag-pill" data-tag="project">📁 Project</button>
+            <button type="button" class="eco-tag-pill" data-tag="quicktask">⏱ QuickTask</button>
+          </div>
+        </div>
+
+        <div class="eco-field">
+          <label for="eco-tags">Custom Tags</label>
+          <input id="eco-tags" name="tags" type="text" placeholder="#Thesis, #Hackathon, #DeepWork" />
+          <div class="eco-help-text">Preset tags are clickable. Add extra tags here, separated with commas.</div>
+        </div>
+
+        <div class="eco-modal-footer">
+          <button type="button" class="refresh-btn" onclick="closeTaskModal()">Cancel</button>
+          <button type="submit" class="eco-create-btn">Save Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="app.js" defer></script>
 </body>

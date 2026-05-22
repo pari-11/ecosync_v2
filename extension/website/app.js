@@ -17,6 +17,10 @@ let currentDownloadsState = {
   cancelledCount: 0
 };
 
+// Eco-scheduler state
+let ecoTasks = [];
+let selectedTagSet = new Set();
+
 function navigate(page) {
   document.querySelectorAll('.nav-item').forEach((el) => {
     el.classList.toggle('active', el.dataset.page === page);
@@ -41,6 +45,10 @@ function navigate(page) {
   if (page === 'downloads') {
     loadDownloads();
     downloadsRefreshTimer = setInterval(loadDownloads, 1000);
+  }
+
+  if (page === 'eco-scheduler') {
+    loadEcoScheduler();
   }
 }
 
@@ -161,6 +169,52 @@ async function fetchDownloadsState() {
   }
 }
 
+// Eco-scheduler API helpers
+async function fetchEcoTasks() {
+  const res = await fetch(`${API}/api/scheduler/tasks`);
+  if (!res.ok) throw new Error(`Scheduler API error: ${res.status}`);
+  return await res.json();
+}
+
+async function createEcoTask(payload) {
+  const res = await fetch(`${API}/api/scheduler/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`Create task API error: ${res.status}`);
+  return await res.json();
+}
+
+async function updateTaskStatus(taskId, status) {
+  const res = await fetch(`${API}/api/scheduler/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error(`Update task API error: ${res.status}`);
+  return await res.json();
+}
+
+async function deleteTask(taskId) {
+  const res = await fetch(`${API}/api/scheduler/tasks/${taskId}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error(`Delete task API error: ${res.status}`);
+}
+
+async function clearAllTasks() {
+  if (!confirm('Clear all tasks from the Eco-Scheduler?')) return;
+  try {
+    await fetch(`${API}/api/scheduler/tasks`, { method: 'DELETE' });
+    ecoTasks = [];
+    renderEcoBoard();
+    updateEcoHomeSummary();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 function toggleSimulate() {
   simulating = !simulating;
   const btn = document.getElementById('sim-btn');
@@ -182,6 +236,7 @@ function toggleSimulate() {
   loadDashboard();
   if (document.getElementById('page-tab-auditor')?.classList.contains('active')) loadTabs();
   if (document.getElementById('page-downloads')?.classList.contains('active')) loadDownloads();
+  if (document.getElementById('page-eco-scheduler')?.classList.contains('active')) loadEcoScheduler();
 }
 
 async function loadDashboard() {
@@ -244,6 +299,10 @@ async function loadDashboard() {
     setText('home-download-active', currentDownload ? 1 : 0);
     setText('home-download-queue', (currentDownloadsState.deferred || []).length);
     setText('home-download-saved', `${Number(currentDownloadsState.savedCO2 || 0).toFixed(2)}g`);
+
+    if (Array.isArray(ecoTasks) && ecoTasks.length) {
+      updateEcoHomeSummary();
+    }
   } catch (e) {
     setText('dash-intensity', 'Offline');
     setText('home-intensity', 'Offline');
@@ -643,6 +702,304 @@ async function downloadAction(actionType, id) {
   }
 }
 
+// ---------------- ECO SCHEDULER FRONTEND ----------------
+
+function classifyTaskModeLocal(task) {
+  const onlineKeywords = [
+    'download', 'upload', 'sync', 'video call', 'zoom', 'meet',
+    'stream', 'streaming', 'git push', 'push', 'cloud backup', 'backup',
+    'watch', 'update'
+  ];
+  const offlineKeywords = [
+    'write', 'code', 'read', 'review', 'brainstorm',
+    'document', 'sketch', 'organize', 'research'
+  ];
+
+  const tags = (task.tags || []).map((t) => String(t).toLowerCase());
+
+  if (tags.includes('online')) return 'online';
+  if (tags.includes('offline')) return 'offline';
+
+  const text = [task.title || '', task.description || '', tags.join(' ')]
+    .join(' ')
+    .toLowerCase();
+
+  if (onlineKeywords.some((kw) => text.includes(kw))) return 'online';
+  if (offlineKeywords.some((kw) => text.includes(kw))) return 'offline';
+
+  return task.mode || 'offline';
+}
+
+function openTaskModal() {
+  const back = document.getElementById('eco-modal');
+  if (back) back.style.display = 'flex';
+}
+
+function closeTaskModal() {
+  const back = document.getElementById('eco-modal');
+  if (back) back.style.display = 'none';
+
+  const form = document.getElementById('eco-task-form');
+  if (form) form.reset();
+
+  selectedTagSet.clear();
+  document.querySelectorAll('.eco-tag-pill').forEach((btn) => btn.classList.remove('selected'));
+}
+
+async function submitTaskForm(ev) {
+  ev.preventDefault();
+  const form = document.getElementById('eco-task-form');
+  if (!form) return;
+
+  const title = form.title.value.trim();
+  const description = form.description.value.trim();
+  const priority = form.priority.value;
+  const estimatedMinutes = form.estimated_minutes.value ? Number(form.estimated_minutes.value) : null;
+  const tagsRaw = form.tags.value || '';
+  const customTags = tagsRaw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  const presetTags = Array.from(selectedTagSet);
+  const tags = [...presetTags, ...customTags];
+
+  if (!title) return;
+
+  try {
+    await createEcoTask({
+      title,
+      description,
+      priority,
+      estimated_minutes: estimatedMinutes,
+      tags
+    });
+
+    closeTaskModal();
+    await loadEcoScheduler();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function buildTaskBadges(task, currentTL) {
+  const parts = [];
+
+  const priorityLabel =
+    task.priority === 'high'
+      ? '🔴 High Priority'
+      : task.priority === 'medium'
+        ? '🟡 Medium Priority'
+        : '🟢 Low Priority';
+
+  parts.push(`<span class="eco-badge eco-priority">${priorityLabel}</span>`);
+
+  const mode = classifyTaskModeLocal(task);
+  if (mode === 'online') {
+    parts.push('<span class="eco-badge eco-mode-online">⚡ Online Task</span>');
+  } else {
+    parts.push('<span class="eco-badge eco-mode-offline">🍃 Offline Task</span>');
+  }
+
+  if (task.estimated_minutes) {
+    parts.push(`<span class="eco-badge eco-duration">${Number(task.estimated_minutes)} mins</span>`);
+  }
+
+  if (Array.isArray(task.tags) && task.tags.length) {
+    const label = task.tags.map((t) => `#${escapeHTML(t)}`).join(' ');
+    parts.push(`<span class="eco-badge eco-tags">${label}</span>`);
+  }
+
+  if (mode === 'online' && currentTL === 'red') {
+    parts.push('<span class="eco-badge eco-warning">⚠️ Grid is Dirty — shift to offline or wait for your green window.</span>');
+  }
+  if (mode === 'offline' && currentTL === 'red') {
+    parts.push('<span class="eco-badge eco-focus">Perfect time for this task — grid under stress, go local.</span>');
+  }
+
+  return parts.join('');
+}
+
+function renderEcoBoard() {
+  const pendingCol = document.getElementById('eco-col-pending');
+  const queueCol = document.getElementById('eco-col-queue');
+  const completedCol = document.getElementById('eco-col-completed');
+  if (!pendingCol || !queueCol || !completedCol) return;
+
+  const pending = ecoTasks.filter((t) => t.status === 'pending');
+  const completed = ecoTasks.filter((t) => t.status === 'completed');
+
+  const onlinePending = pending.filter((t) => classifyTaskModeLocal(t) === 'online');
+
+  // SJF: shortest estimated_minutes first for online tasks
+  onlinePending.sort((a, b) => {
+    const ea = a.estimated_minutes || Number.MAX_SAFE_INTEGER;
+    const eb = b.estimated_minutes || Number.MAX_SAFE_INTEGER;
+    if (ea === eb) return 0;
+    return ea < eb ? -1 : 1;
+  });
+
+  setText('eco-pending-count', pending.length);
+  setText('eco-queue-count', onlinePending.length);
+  setText('eco-completed-count', completed.length);
+
+  updateEcoHomeSummary();
+
+  const tl = currentCarbon.trafficLight || 'unknown';
+
+  if (!pending.length) {
+    pendingCol.innerHTML = `
+      <div class="download-empty">
+        No pending tasks yet. Create one to get green window hints.
+      </div>
+    `;
+  } else {
+    pendingCol.innerHTML = pending
+      .map((task) => {
+        const mode = classifyTaskModeLocal(task);
+        const dirtyClass = mode === 'online' && tl === 'red' ? 'eco-task-dirty' : '';
+        const cardModeClass = mode === 'online' ? 'eco-task-online' : 'eco-task-offline';
+
+        return `
+          <article class="eco-task-card ${cardModeClass} ${dirtyClass}" data-id="${task.id}" data-mode="${mode}">
+            <div class="eco-task-head">
+              <h3>${escapeHTML(task.title)}</h3>
+              <button class="eco-task-delete" type="button" onclick="handleDeleteTask(${task.id})">✕</button>
+            </div>
+            <p class="eco-task-desc">${escapeHTML(task.description || '')}</p>
+            <div class="eco-task-badges">
+              ${buildTaskBadges(task, tl)}
+            </div>
+            <div class="eco-task-window">
+              <span class="eco-window-label">🔋 Recommended Green Window</span>
+              <span class="eco-window-value">${escapeHTML(task.recommended_window || '—')}</span>
+            </div>
+            <div class="eco-task-footer">
+              <button type="button" class="refresh-btn" onclick="handleCompleteTask(${task.id}, '${mode}')">
+                Mark Complete
+              </button>
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  }
+
+  if (!onlinePending.length) {
+    queueCol.innerHTML = `
+      <div class="download-empty">
+        No online tasks in the queue. Add a download/upload/render to see its green window.
+      </div>
+    `;
+  } else {
+    queueCol.innerHTML = onlinePending
+      .map((task) => {
+        const dirty = tl === 'red';
+        const dirtyClass = dirty ? 'eco-task-dirty' : '';
+        return `
+          <article class="eco-task-card eco-task-online ${dirtyClass}" data-id="${task.id}" data-mode="online">
+            <div class="eco-task-head">
+              <h3>${escapeHTML(task.title)}</h3>
+              <span class="eco-pill-inline">⚡ Online Task</span>
+            </div>
+            <p class="eco-task-desc">${escapeHTML(task.description || '')}</p>
+            <div class="eco-task-badges">
+              ${buildTaskBadges(task, tl)}
+            </div>
+            <div class="eco-task-window">
+              <span class="eco-window-label">🔋 Recommended Green Window</span>
+              <span class="eco-window-value">${escapeHTML(task.recommended_window || '—')}</span>
+            </div>
+            ${dirty ? `<div class="eco-nudge">⚠️ Grid is Dirty. Shift to an offline task or wait for this window.</div>` : ''}
+            <div class="eco-task-footer">
+              <button type="button" class="refresh-btn" onclick="handleCompleteTask(${task.id}, 'online')">
+                Mark Complete
+              </button>
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  }
+
+  if (!completed.length) {
+    completedCol.innerHTML = `
+      <div class="download-empty">
+        No completed tasks yet. Once you mark a task complete, it shows up here with a small carbon note.
+      </div>
+    `;
+  } else {
+    completedCol.innerHTML = completed
+      .map((task) => {
+        const mode = classifyTaskModeLocal(task);
+        const isOnline = mode === 'online';
+        const stamp = isOnline
+          ? '✅ Task executed during a green window. CO₂ likely reduced vs peak execution.'
+          : '✅ Offline focus task completed. Good job avoiding heavy online load.';
+
+        return `
+          <article class="eco-task-card eco-task-completed" data-id="${task.id}" data-mode="${mode}">
+            <div class="eco-task-head">
+              <h3>${escapeHTML(task.title)}</h3>
+            </div>
+            <p class="eco-task-desc">${escapeHTML(task.description || '')}</p>
+            <div class="eco-task-badges">
+              ${buildTaskBadges(task, tl)}
+            </div>
+            <div class="eco-task-window">
+              <span class="eco-window-label">Execution Window</span>
+              <span class="eco-window-value">${escapeHTML(task.recommended_window || '—')}</span>
+            </div>
+            <div class="eco-task-stamp">
+              ${stamp}
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  }
+}
+
+function updateEcoHomeSummary() {
+  const pending = ecoTasks.filter((t) => t.status === 'pending');
+  const completed = ecoTasks.filter((t) => t.status === 'completed');
+  const online = ecoTasks.filter((t) => classifyTaskModeLocal(t) === 'online');
+
+  setText('home-eco-pending', pending.length);
+  setText('home-eco-completed', completed.length);
+  setText('home-eco-online', online.length);
+}
+
+async function handleCompleteTask(id) {
+  try {
+    await updateTaskStatus(id, 'completed');
+    await loadEcoScheduler();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function handleDeleteTask(id) {
+  try {
+    await deleteTask(id);
+    await loadEcoScheduler();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function loadEcoScheduler() {
+  try {
+    const tasks = await fetchEcoTasks();
+    ecoTasks = tasks || [];
+    renderEcoBoard();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+// ---------------- BOOTSTRAP ----------------
+
 window.addEventListener('DOMContentLoaded', async () => {
   try {
     if (localStorage.getItem('ecosync-theme') === 'dark') {
@@ -654,6 +1011,20 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.querySelectorAll('.nav-item').forEach((el) => {
     el.addEventListener('click', () => navigate(el.dataset.page));
+  });
+
+  document.querySelectorAll('.eco-tag-pill').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tag = btn.dataset.tag;
+      if (!tag) return;
+      if (selectedTagSet.has(tag)) {
+        selectedTagSet.delete(tag);
+        btn.classList.remove('selected');
+      } else {
+        selectedTagSet.add(tag);
+        btn.classList.add('selected');
+      }
+    });
   });
 
   await Promise.allSettled([loadDashboard(), loadDownloads()]);
