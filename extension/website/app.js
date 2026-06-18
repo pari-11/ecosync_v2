@@ -53,7 +53,7 @@ function navigate(page) {
 
   if (page === 'downloads') {
     loadDownloads();
-    downloadsRefreshTimer = setInterval(loadDownloads, 1000);
+    downloadsRefreshTimer = setInterval(loadDownloads, 10000);
   }
 
   if (page === 'eco-scheduler') {
@@ -917,16 +917,19 @@ async function submitTaskForm(ev) {
   if (!title) return;
 
   try {
-    await createEcoTask({
+    const newTask = await createEcoTask({
       title,
       description,
       priority,
       estimated_minutes: estimatedMinutes,
       tags
-    });
+      });
 
-    closeTaskModal();
-    await loadEcoScheduler();
+      ecoTasks.push(newTask);
+
+      closeTaskModal();
+
+      renderEcoBoard();
   } catch (e) {
     console.error(e);
   }
